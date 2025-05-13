@@ -20,6 +20,12 @@ class User(models.Model):
         blank=True,
         default=dict
     )
+    extended_warranty_products = models.JSONField(
+        verbose_name='Товары с расширенной гарантией',
+        null=True,
+        blank=True,
+        default=dict
+    )
     def __str__(self):
         return str(self.user_name)
 
@@ -58,6 +64,10 @@ class goods(models.Model):
     )
     warranty = models.TextField(
         verbose_name='Условия гарантия'
+    )
+    extended_warranty = models.TextField(
+        verbose_name='Условия расширенной гарантии',
+        default='Для получения расширенной гарантии оставьте отзыв с оценкой 5 звезд на товар.'
     )
 
     def __str__(self):

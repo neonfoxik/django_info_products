@@ -1,7 +1,6 @@
 from traceback import format_exc
 
 from asgiref.sync import sync_to_async
-from bot.handlers import *
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -10,6 +9,15 @@ from telebot.apihelper import ApiTelegramException
 from telebot.types import Update
 
 from bot import bot, logger
+
+# Импортируем все обработчики из handlers/__init__.py
+from bot.handlers import (
+    start, menu_call, back_to_main, support_menu, 
+    show_category_products, show_product_menu, show_product_info,
+    chat_with_ai, activate_warranty,
+    cancel_warranty_activation, show_my_warranties, check_screenshot,
+    confirm_review, cancel_review
+)
 
 
 @require_GET
@@ -53,7 +61,11 @@ menu_call = bot.callback_query_handler(lambda c: c.data == "menu")(menu_call)
 back_to_main_handler = bot.callback_query_handler(lambda c: c.data == "back_to_main")(back_to_main)
 support_menu_handler = bot.callback_query_handler(lambda c: c.data == "support_menu")(support_menu)
 
-chat_with_ai = bot.message_handler(func=lambda message: True)(chat_with_ai)
+# Явный обработчик для фотографий
+photo_handler = bot.message_handler(content_types=['photo'])(check_screenshot)
+
+# Общий обработчик сообщений (должен идти после специализированных обработчиков)
+text_handler = bot.message_handler(func=lambda message: True)(chat_with_ai)
 
 # Обработчики для категорий и товаров
 category_handler = bot.callback_query_handler(lambda c: c.data.startswith("category_"))(show_category_products)
@@ -65,3 +77,12 @@ instructions_handler = bot.callback_query_handler(lambda c: c.data.startswith("i
 faq_handler = bot.callback_query_handler(lambda c: c.data.startswith("faq_"))(show_product_info)
 warranty_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_"))(show_product_info)
 support_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_"))(show_product_info)
+
+# Обработчики для расширенной гарантии
+activate_warranty_handler = bot.callback_query_handler(lambda c: c.data.startswith("activate_warranty_"))(activate_warranty)
+cancel_warranty_handler = bot.callback_query_handler(lambda c: c.data.startswith("cancel_warranty_"))(cancel_warranty_activation)
+my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "my_warranties")(show_my_warranties)
+
+# Обработчики для подтверждения скриншотов отзывов
+confirm_review_handler = bot.callback_query_handler(lambda c: c.data.startswith("confirm_review_"))(confirm_review)
+cancel_review_handler = bot.callback_query_handler(lambda c: c.data.startswith("cancel_review_"))(cancel_review)

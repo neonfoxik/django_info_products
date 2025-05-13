@@ -1,9 +1,28 @@
 from telebot.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from bot import bot
 from bot.texts import MAIN_TEXT, SUPPORT_TEXT, SUPPORT_LIMIT_REACHED, AI_ERROR
-from bot.keyboards import main_markup, back_to_main_markup
+from bot.texts import EXTENDED_WARRANTY_TEXT, EXTENDED_WARRANTY_AVAILABLE, EXTENDED_WARRANTY_NOT_AVAILABLE
+from bot.texts import EXTENDED_WARRANTY_ACTIVATION, SEND_SCREENSHOT, SCREENSHOT_VERIFICATION_FAILED
+from bot.texts import EXTENDED_WARRANTY_ACTIVATED, SCREENSHOT_PROCESSING, SCREENSHOT_CHECKING, SCREENSHOT_INVALID, SCREENSHOT_VERIFIED
+from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup
+from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup
 from .registration import start_registration
 from bot.models import goods, goods_category, User
+from bot.apis import analyze_screenshot
+import json
+import os
+import logging
+import time
+import random
+import traceback
+
+# Словарь для отслеживания процесса активации расширенной гарантии
+warranty_activation_state = {}
+
+# Словарь для хранения состояния ручного подтверждения скриншотов
+manual_confirmation_state = {}
+
+logger = logging.getLogger(__name__)
 
 def start(message: Message) -> None:
     # Отключаем режим ИИ при команде /start
@@ -100,12 +119,7 @@ def show_product_menu(call: CallbackQuery) -> None:
     product_id = int(call.data.split('_')[1])
     product = goods.objects.get(id=product_id)
     
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("📖 Инструкция", callback_data=f"instructions_{product_id}"))
-    markup.add(InlineKeyboardButton("❓ FAQ", callback_data=f"faq_{product_id}"))
-    markup.add(InlineKeyboardButton("🛡️ Гарантия", callback_data=f"warranty_{product_id}"))
-    markup.add(InlineKeyboardButton("📞 Поддержка", callback_data=f"support_{product_id}"))
-    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"category_{product.parent_category.id}"))
+    markup = get_product_menu_markup(product_id)
     
     bot.edit_message_text(
         chat_id=call.message.chat.id,
@@ -156,7 +170,36 @@ def show_product_info(call: CallbackQuery) -> None:
     elif info_type == "faq":
         text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{product.FAQ}"
     elif info_type == "warranty":
-        text = f"🛡️ Условия гарантии на {product.name}:\n\n{product.warranty}"
+        # Получаем информацию о расширенной гарантии
+        try:
+            user = User.objects.get(telegram_id=call.message.chat.id)
+            extended_warranties = user.extended_warranty_products or {}
+            
+            if isinstance(extended_warranties, str):
+                extended_warranties = json.loads(extended_warranties)
+            
+            # Проверяем, есть ли расширенная гарантия на данный товар
+            has_warranty = str(product_id) in extended_warranties
+            
+            # Формируем текст с информацией о стандартной и расширенной гарантии
+            standard_warranty_text = f"🛡️ Условия гарантии на {product.name}:\n\n{product.warranty}"
+            
+            if has_warranty:
+                # Если у пользователя уже есть расширенная гарантия
+                extended_text = f"\n\n{EXTENDED_WARRANTY_AVAILABLE}"
+            else:
+                # Если расширенной гарантии нет, показываем информацию о том, как её получить
+                extended_text = f"\n\n{EXTENDED_WARRANTY_NOT_AVAILABLE}\n\n{EXTENDED_WARRANTY_ACTIVATION}"
+            
+            text = standard_warranty_text + extended_text
+            
+            # Создаем клавиатуру с кнопкой активации расширенной гарантии, если её нет
+            markup = get_warranty_markup_with_extended(product_id, has_warranty)
+            
+        except Exception as e:
+            # В случае ошибки, показываем только стандартную гарантию
+            print(f"Ошибка при отображении информации о расширенной гарантии: {e}")
+            text = f"🛡️ Условия гарантии на {product.name}:\n\n{product.warranty}"
     elif info_type == "support":
         text = SUPPORT_TEXT
         user = User.objects.get(telegram_id=call.message.chat.id)
@@ -184,15 +227,366 @@ def show_product_info(call: CallbackQuery) -> None:
             reply_markup=markup
         )
 
+def activate_warranty(call: CallbackQuery) -> None:
+    """Запускает процесс активации расширенной гарантии"""
+    try:
+        product_id = int(call.data.split('_')[2])
+        print(f"[LOG] Запрос на активацию гарантии от пользователя {call.message.chat.id} для товара {product_id}")
+        logger.info(f"[LOG] Запрос на активацию гарантии от пользователя {call.message.chat.id} для товара {product_id}")
+        
+        product = goods.objects.get(id=product_id)
+        
+        # Сохраняем состояние активации гарантии
+        warranty_activation_state[call.message.chat.id] = {
+            'product_id': product_id,
+            'waiting_for_screenshot': True
+        }
+        
+        print(f"[LOG] Состояние ожидания скриншота установлено для пользователя {call.message.chat.id}")
+        logger.info(f"[LOG] Состояние ожидания скриншота установлено для пользователя {call.message.chat.id}")
+        
+        markup = get_screenshot_markup(product_id)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=SEND_SCREENSHOT,
+            reply_markup=markup
+        )
+        
+        print(f"[LOG] Пользователю {call.message.chat.id} отправлен запрос на скриншот")
+        logger.info(f"[LOG] Пользователю {call.message.chat.id} отправлен запрос на скриншот")
+    except Exception as e:
+        print(f"[ERROR] Ошибка при запуске активации гарантии: {e}")
+        logger.error(f"[ERROR] Ошибка при запуске активации гарантии: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+def cancel_warranty_activation(call: CallbackQuery) -> None:
+    """Отменяет процесс активации расширенной гарантии"""
+    try:
+        product_id = int(call.data.split('_')[2])
+        print(f"[LOG] Отмена активации гарантии пользователем {call.message.chat.id} для товара {product_id}")
+        logger.info(f"[LOG] Отмена активации гарантии пользователем {call.message.chat.id} для товара {product_id}")
+        
+        # Удаляем состояние активации
+        if call.message.chat.id in warranty_activation_state:
+            del warranty_activation_state[call.message.chat.id]
+            print(f"[LOG] Состояние ожидания скриншота удалено для пользователя {call.message.chat.id}")
+            logger.info(f"[LOG] Состояние ожидания скриншота удалено для пользователя {call.message.chat.id}")
+        
+        # Возвращаемся к информации о товаре
+        show_product_menu(call)
+        
+        print(f"[LOG] Пользователь {call.message.chat.id} возвращен в меню товара {product_id}")
+        logger.info(f"[LOG] Пользователь {call.message.chat.id} возвращен в меню товара {product_id}")
+    except Exception as e:
+        print(f"[ERROR] Ошибка при отмене активации: {e}")
+        logger.error(f"[ERROR] Ошибка при отмене активации: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+def check_screenshot(message: Message) -> None:
+    """Проверяет скриншот отзыва для активации расширенной гарантии"""
+    try:
+        print(f"[LOG] ПОЛУЧЕНА ФОТОГРАФИЯ ОТ ПОЛЬЗОВАТЕЛЯ {message.chat.id}")
+        print(f"[LOG] Тип сообщения: {type(message)}")
+        logger.info(f"[LOG] ПОЛУЧЕНА ФОТОГРАФИЯ ОТ ПОЛЬЗОВАТЕЛЯ {message.chat.id}")
+        
+        # Проверяем наличие фото
+        if not message.photo:
+            print(f"[LOG] СООБЩЕНИЕ НЕ СОДЕРЖИТ ФОТО")
+            logger.info(f"[LOG] СООБЩЕНИЕ НЕ СОДЕРЖИТ ФОТО")
+            return
+        
+        # Отправляем мгновенное подтверждение получения фото
+        msg = bot.send_message(
+            chat_id=message.chat.id,
+            text=SCREENSHOT_PROCESSING
+        )
+        print(f"[LOG] Отправлено подтверждение получения фото")
+        
+        # Получаем фото максимального размера
+        if message.photo:
+            photo = message.photo[-1]
+            file_id = photo.file_id
+            print(f"[LOG] ID файла: {file_id}")
+        
+        # Если пользователь в процессе активации гарантии
+        if message.chat.id in warranty_activation_state and warranty_activation_state[message.chat.id].get('waiting_for_screenshot'):
+            print(f"[LOG] Пользователь в процессе активации гарантии")
+            
+            # Получаем информацию о товаре
+            product_id = warranty_activation_state[message.chat.id]['product_id']
+            print(f"[LOG] Product ID: {product_id}")
+            
+            # Обновляем сообщение с информацией о проверке
+            bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=msg.message_id,
+                text=SCREENSHOT_CHECKING
+            )
+            print(f"[LOG] Сообщение обновлено: проверка скриншота")
+            
+            # Имитируем задержку обработки
+            time.sleep(2)
+            
+            # Анализируем скриншот с помощью компьютерного зрения
+            try:
+                print(f"[LOG] Начинаем анализ скриншота")
+                analysis_result = analyze_screenshot(photo, bot)
+                print(f"[LOG] Результат анализа: {analysis_result}")
+                
+                is_valid = analysis_result['has_5_stars']
+                confidence = analysis_result.get('confidence', 0)
+                
+                # Логируем результат анализа
+                print(f"[LOG] Скриншот содержит 5 звезд: {is_valid}, уверенность: {confidence}%")
+                logger.info(f"[LOG] Скриншот содержит 5 звезд: {is_valid}, уверенность: {confidence}%")
+                
+                # Если скриншот не подтвержден или уверенность слишком низкая
+                if not is_valid or confidence < 70:
+                    # Если скриншот не прошел проверку, предлагаем ручное подтверждение
+                    manual_confirmation_markup = InlineKeyboardMarkup()
+                    resend_btn = InlineKeyboardButton("🔄 Отправить другой скриншот", 
+                                                     callback_data=f"cancel_review_{product_id}")
+                    manual_confirmation_markup.add(resend_btn)
+                    
+                    # Сохраняем состояние ожидания ручного подтверждения
+                    manual_confirmation_state[message.chat.id] = {
+                        'product_id': product_id,
+                        'message_id': msg.message_id,
+                        'photo_id': photo.file_id
+                    }
+                    
+                    # Отправляем сообщение с запросом ручного подтверждения
+                    bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=msg.message_id,
+                        text=f"{analysis_result.get('message', SCREENSHOT_INVALID)}\n\nВаш скриншот требует проверки. Выберите действие:",
+                        reply_markup=manual_confirmation_markup
+                    )
+                    
+                    print(f"[LOG] Запрос ручного подтверждения отправлен пользователю")
+                    logger.info(f"[LOG] Запрос ручного подтверждения отправлен пользователю")
+                    return
+                
+                # Если скриншот прошел проверку
+                bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=msg.message_id,
+                    text=f"{SCREENSHOT_VERIFIED}\n\nУверенность определения: {confidence}%"
+                )
+                print(f"[LOG] Скриншот прошел проверку")
+                logger.info(f"[LOG] Скриншот прошел проверку")
+                
+                # Активируем расширенную гарантию для пользователя
+                activate_extended_warranty(message.chat.id, product_id, msg.message_id)
+                
+            except Exception as e:
+                print(f"[ERROR] Ошибка при анализе скриншота: {e}")
+                logger.error(f"[ERROR] Ошибка при анализе скриншота: {e}")
+                
+
+                
+                # Сохраняем состояние ожидания ручного подтверждения
+                manual_confirmation_state[message.chat.id] = {
+                    'product_id': product_id,
+                    'message_id': msg.message_id,
+                    'photo_id': photo.file_id
+                }
+                
+                
+                
+                print(f"[LOG] Запрос ручного подтверждения отправлен пользователю после ошибки")
+                logger.info(f"[LOG] Запрос ручного подтверждения отправлен пользователю после ошибки")
+                
+        else:
+            # Если пользователь не в процессе активации гарантии
+            print(f"[LOG] Пользователь не в процессе активации гарантии")
+            bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=msg.message_id,
+                text="Спасибо за фотографию! Если вы хотите активировать расширенную гарантию, перейдите в раздел гарантии товара."
+            )
+    
+    except Exception as e:
+        print(f"[ERROR] ОШИБКА В ФУНКЦИИ check_screenshot: {e}")
+        logger.error(f"[ERROR] ОШИБКА В ФУНКЦИИ check_screenshot: {e}")
+        print(f"[ERROR] Тип ошибки: {type(e)}")
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
+        
+        # Отправляем уведомление об ошибке пользователю
+        bot.send_message(
+            chat_id=message.chat.id,
+            text=f"Произошла ошибка при обработке фотографии. Пожалуйста, попробуйте еще раз."
+        )
+
+def activate_extended_warranty(chat_id, product_id, message_id=None):
+    """Активирует расширенную гарантию для пользователя"""
+    try:
+        print(f"[LOG] Активация расширенной гарантии для пользователя {chat_id} на товар {product_id}")
+        
+        product = goods.objects.get(id=product_id)
+        user = User.objects.get(telegram_id=chat_id)
+        
+        extended_warranties = user.extended_warranty_products or {}
+        if isinstance(extended_warranties, str):
+            extended_warranties = json.loads(extended_warranties)
+        
+        # Добавляем товар в список товаров с расширенной гарантией
+        extended_warranties[str(product_id)] = True
+        user.extended_warranty_products = extended_warranties
+        user.save()
+        
+        print(f"[LOG] Гарантия активирована для товара {product_id}")
+        
+        # Отправляем сообщение об успешной активации
+        if message_id:
+            # Обновляем существующее сообщение
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=EXTENDED_WARRANTY_ACTIVATED
+            )
+        else:
+            # Отправляем новое сообщение
+            bot.send_message(
+                chat_id=chat_id,
+                text=EXTENDED_WARRANTY_ACTIVATED
+            )
+        
+        # Добавляем кнопку возврата
+        markup = InlineKeyboardMarkup()
+        back_btn = InlineKeyboardButton("⬅️ Вернуться к товару", callback_data=f"product_{product_id}")
+        markup.add(back_btn)
+        
+        bot.send_message(
+            chat_id=chat_id,
+            text="Используйте кнопку ниже, чтобы вернуться к информации о товаре:",
+            reply_markup=markup
+        )
+        
+        # Удаляем состояние активации гарантии
+        if chat_id in warranty_activation_state:
+            del warranty_activation_state[chat_id]
+        
+        # Удаляем состояние ручного подтверждения, если оно было
+        if chat_id in manual_confirmation_state:
+            del manual_confirmation_state[chat_id]
+            
+    except Exception as e:
+        print(f"[ERROR] Ошибка при активации гарантии: {e}")
+        logger.error(f"[ERROR] Ошибка при активации гарантии: {e}")
+        
+        # Отправляем сообщение об ошибке
+        bot.send_message(
+            chat_id=chat_id,
+            text=f"Произошла ошибка при активации гарантии: {e}"
+        )
+
+def confirm_review(call: CallbackQuery) -> None:
+    """Обработчик для ручного подтверждения скриншота с отзывом"""
+    try:
+        product_id = int(call.data.split('_')[2])
+        chat_id = call.message.chat.id
+        
+        print(f"[LOG] Пользователь {chat_id} подтвердил скриншот отзыва для товара {product_id}")
+        logger.info(f"[LOG] Пользователь {chat_id} подтвердил скриншот отзыва для товара {product_id}")
+        
+        # Активируем расширенную гарантию
+        activate_extended_warranty(chat_id, product_id, call.message.message_id)
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при ручном подтверждении скриншота: {e}")
+        logger.error(f"[ERROR] Ошибка при ручном подтверждении скриншота: {e}")
+        
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
+        )
+
+def cancel_review(call: CallbackQuery) -> None:
+    """Обработчик для отмены ручного подтверждения скриншота"""
+    try:
+        product_id = int(call.data.split('_')[2])
+        chat_id = call.message.chat.id
+        
+        print(f"[LOG] Пользователь {chat_id} отменил подтверждение скриншота для товара {product_id}")
+        logger.info(f"[LOG] Пользователь {chat_id} отменил подтверждение скриншота для товара {product_id}")
+        
+        # Если было состояние ручного подтверждения, удаляем его
+        if chat_id in manual_confirmation_state:
+            del manual_confirmation_state[chat_id]
+        
+        # Отправляем сообщение с просьбой отправить новый скриншот
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=SEND_SCREENSHOT
+        )
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при отмене подтверждения скриншота: {e}")
+        logger.error(f"[ERROR] Ошибка при отмене подтверждения скриншота: {e}")
+        
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
+        )
+
+def show_my_warranties(call: CallbackQuery) -> None:
+    """Показывает список товаров с активированной расширенной гарантией"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        extended_warranties = user.extended_warranty_products or {}
+        
+        if isinstance(extended_warranties, str):
+            extended_warranties = json.loads(extended_warranties)
+        
+        if not extended_warranties:
+            # Если нет активированных гарантий
+            text = "У вас пока нет активированных расширенных гарантий на товары."
+        else:
+            # Формируем список товаров с расширенной гарантией
+            text = "Товары с активированной расширенной гарантией:\n\n"
+            for product_id in extended_warranties:
+                try:
+                    product = goods.objects.get(id=int(product_id))
+                    text += f"✅ {product.name}\n"
+                except goods.DoesNotExist:
+                    continue
+        
+        markup = back_to_main_markup
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=markup
+        )
+    except Exception as e:
+        print(f"Ошибка при отображении списка расширенных гарантий: {e}")
+        bot.send_message(call.message.chat.id, "Произошла ошибка при обработке запроса.")
+
 def chat_with_ai(message: Message) -> None:
     """Обработчик для общения с ИИ"""
-    from bot.apis.ai import OpenAIAPI
-    
     try:
+        # Проверяем, не является ли сообщение скриншотом для активации гарантии
+        if message.photo:
+            print(f"[LOG] Получена фотография от пользователя {message.chat.id}")
+            logger.info(f"[LOG] Получена фотография от пользователя {message.chat.id}")
+            
+            # Принудительно вызываем обработку скриншота, если пришло фото
+            check_screenshot(message)
+            return
+        
+        from bot.apis.ai import OpenAIAPI
+        
         user = User.objects.get(telegram_id=message.chat.id)
         
         # Проверяем, активирован ли режим общения с ИИ
         if not user.is_ai:
+            print(f"[LOG] Пользователь {message.chat.id} не в режиме AI")
+            logger.info(f"[LOG] Пользователь {message.chat.id} не в режиме AI")
             return
             
         # Проверяем количество уже отправленных сообщений
@@ -201,6 +595,9 @@ def chat_with_ai(message: Message) -> None:
             chat_history = {}
             
         ai_counter = chat_history.get('ai_counter', 0)
+        
+        print(f"[LOG] Запрос к AI от пользователя {message.chat.id}, счетчик: {ai_counter}")
+        logger.info(f"[LOG] Запрос к AI от пользователя {message.chat.id}, счетчик: {ai_counter}")
         
         # Если уже было отправлено 3 сообщения, отключаем ИИ и отправляем сообщение
         if ai_counter >= 3:
@@ -217,10 +614,16 @@ def chat_with_ai(message: Message) -> None:
                 text=SUPPORT_LIMIT_REACHED,
                 reply_markup=markup
             )
+            
+            print(f"[LOG] Лимит сообщений к AI превышен для пользователя {message.chat.id}")
+            logger.info(f"[LOG] Лимит сообщений к AI превышен для пользователя {message.chat.id}")
             return
         
         # Отправляем сообщение о том, что бот печатает
         bot.send_chat_action(message.chat.id, 'typing')
+        
+        print(f"[LOG] Отправка запроса к AI API: {message.text}")
+        logger.info(f"[LOG] Отправка запроса к AI API: {message.text}")
         
         # Получаем ответ от ИИ
         ai = OpenAIAPI()
@@ -233,13 +636,20 @@ def chat_with_ai(message: Message) -> None:
             chat_history['ai_counter'] = ai_counter + 1
             user.chat_history = chat_history
             user.save()
+            
+            print(f"[LOG] Получен ответ от AI, новый счетчик: {ai_counter + 1}")
+            logger.info(f"[LOG] Получен ответ от AI, новый счетчик: {ai_counter + 1}")
         else:
             bot.send_message(
                 message.chat.id, 
                 AI_ERROR
             )
+            print(f"[ERROR] Ошибка получения ответа от AI API")
+            logger.error(f"[ERROR] Ошибка получения ответа от AI API")
     except User.DoesNotExist:
         # Если пользователь не существует, игнорируем сообщение
+        print(f"[LOG] Пользователь {message.chat.id} не найден в базе данных")
+        logger.info(f"[LOG] Пользователь {message.chat.id} не найден в базе данных")
         pass
     except Exception as e:
         # В случае ошибки, отправляем сообщение об ошибке
@@ -247,7 +657,8 @@ def chat_with_ai(message: Message) -> None:
             message.chat.id, 
             AI_ERROR
         )
-        print(f"Ошибка в chat_with_ai: {e}")
+        print(f"[ERROR] Ошибка в chat_with_ai: {e}")
+        logger.error(f"[ERROR] Ошибка в chat_with_ai: {e}")
 
 def back_to_main(call: CallbackQuery) -> None:
     """Обработчик для возврата в главное меню"""
