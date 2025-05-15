@@ -4,6 +4,7 @@ from bot.texts import MAIN_TEXT, SUPPORT_TEXT, SUPPORT_LIMIT_REACHED, AI_ERROR
 from bot.texts import EXTENDED_WARRANTY_TEXT, EXTENDED_WARRANTY_AVAILABLE, EXTENDED_WARRANTY_NOT_AVAILABLE
 from bot.texts import EXTENDED_WARRANTY_ACTIVATION, SEND_SCREENSHOT, SCREENSHOT_VERIFICATION_FAILED
 from bot.texts import EXTENDED_WARRANTY_ACTIVATED, SCREENSHOT_PROCESSING, SCREENSHOT_CHECKING, SCREENSHOT_INVALID, SCREENSHOT_VERIFIED
+from bot.texts import EXTENDED_WARRANTY_ACTIVATED, SCREENSHOT_PROCESSING, SCREENSHOT_CHECKING, SCREENSHOT_INVALID, SCREENSHOT_VERIFIED, SCREENSHOT_LIMIT_REACHED
 from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup
 from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup
 from .registration import start_registration
@@ -15,6 +16,7 @@ import logging
 import time
 import random
 import traceback
+from django.utils import timezone
 
 # Словарь для отслеживания процесса активации расширенной гарантии
 warranty_activation_state = {}
@@ -64,69 +66,162 @@ def menu_m(message: Message) -> None:
 def show_categories(chat_id: int, message_id: int = None) -> None:
     """Показать все категории товаров"""
     markup = InlineKeyboardMarkup()
-    categories = goods_category.objects.all()
     
-    for category in categories:
-        btn = InlineKeyboardButton(
-            category.name, 
-            callback_data=f"category_{category.id}"
-        )
-        markup.add(btn)
+    try:
+        categories = goods_category.objects.all()
+        
+        # Проверяем, есть ли категории
+        if not categories.exists():
+            # Если категорий нет, показываем соответствующее сообщение
+            text = "В настоящее время категории товаров не найдены. Пожалуйста, попробуйте позже."
+            back_btn = InlineKeyboardButton("⬅️ Назад в меню", callback_data="menu")
+            markup.add(back_btn)
+        else:
+            # Если категории есть, показываем их
+            for category in categories:
+                btn = InlineKeyboardButton(
+                    category.name, 
+                    callback_data=f"category_{category.id}"
+                )
+                markup.add(btn)
+            
+            text = "Выберите категорию товаров:"
+            
+        # Отправляем сообщение
+        if message_id:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                reply_markup=markup
+            )
+        else:
+            bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=markup
+            )
     
-    text = "Выберите категорию товаров:"
-    
-    if message_id:
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            reply_markup=markup
-        )
-    else:
-        bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            reply_markup=markup
-        )
+    except Exception as e:
+        # В случае ошибки показываем сообщение об ошибке
+        error_text = "Произошла ошибка при загрузке категорий. Пожалуйста, попробуйте позже."
+        error_markup = InlineKeyboardMarkup()
+        back_btn = InlineKeyboardButton("⬅️ Главное меню", callback_data="menu")
+        error_markup.add(back_btn)
+        
+        print(f"[ERROR] Ошибка при показе категорий: {e}")
+        logger.error(f"[ERROR] Ошибка при показе категорий: {e}")
+        
+        if message_id:
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=error_text,
+                reply_markup=error_markup
+            )
+        else:
+            bot.send_message(
+                chat_id=chat_id,
+                text=error_text,
+                reply_markup=error_markup
+            )
 
 def show_category_products(call: CallbackQuery) -> None:
     """Показать товары в выбранной категории"""
-    category_id = int(call.data.split('_')[1])
-    category = goods_category.objects.get(id=category_id)
-    products = goods.objects.filter(parent_category=category)
-    
-    markup = InlineKeyboardMarkup()
-    for product in products:
-        btn = InlineKeyboardButton(
-            product.name,
-            callback_data=f"product_{product.id}"
+    try:
+        category_id = int(call.data.split('_')[1])
+        
+        try:
+            category = goods_category.objects.get(id=category_id)
+        except goods_category.DoesNotExist:
+            # Если категория не найдена, возвращаемся к списку категорий
+            bot.answer_callback_query(call.id, "Категория не найдена. Возможно, она была удалена.")
+            show_categories(call.message.chat.id, call.message.message_id)
+            return
+        
+        products = goods.objects.filter(parent_category=category)
+        
+        markup = InlineKeyboardMarkup()
+        
+        # Проверяем, есть ли товары в категории
+        if not products.exists():
+            # Если товаров нет, показываем соответствующее сообщение
+            text = f"В категории {category.name} пока нет товаров."
+        else:
+            # Если товары есть, показываем их
+            for product in products:
+                btn = InlineKeyboardButton(
+                    product.name,
+                    callback_data=f"product_{product.id}"
+                )
+                markup.add(btn)
+            
+            text = f"Товары в категории {category.name}:"
+        
+        # Добавляем кнопку "Назад"
+        back_btn = InlineKeyboardButton("⬅️ Назад к категориям", callback_data="back_to_categories")
+        markup.add(back_btn)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=markup
         )
-        markup.add(btn)
     
-    # Добавляем кнопку "Назад"
-    back_btn = InlineKeyboardButton("⬅️ Назад к категориям", callback_data="back_to_categories")
-    markup.add(back_btn)
-    
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=f"Товары в категории {category.name}:",
-        reply_markup=markup
-    )
+    except Exception as e:
+        # В случае ошибки показываем сообщение об ошибке
+        print(f"[ERROR] Ошибка при показе товаров категории: {e}")
+        logger.error(f"[ERROR] Ошибка при показе товаров категории: {e}")
+        
+        error_markup = InlineKeyboardMarkup()
+        back_btn = InlineKeyboardButton("⬅️ Назад к категориям", callback_data="back_to_categories")
+        error_markup.add(back_btn)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Произошла ошибка при загрузке товаров. Пожалуйста, попробуйте позже.",
+            reply_markup=error_markup
+        )
 
 def show_product_menu(call: CallbackQuery) -> None:
     """Показать меню конкретного товара"""
-    product_id = int(call.data.split('_')[1])
-    product = goods.objects.get(id=product_id)
+    try:
+        product_id = int(call.data.split('_')[1])
+        
+        try:
+            product = goods.objects.get(id=product_id)
+        except goods.DoesNotExist:
+            # Если товар не найден, возвращаемся к списку категорий
+            bot.answer_callback_query(call.id, "Товар не найден. Возможно, он был удален.")
+            show_categories(call.message.chat.id, call.message.message_id)
+            return
+        
+        markup = get_product_menu_markup(product_id)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"Информация о товаре: {product.name}",
+            reply_markup=markup
+        )
     
-    markup = get_product_menu_markup(product_id)
-    
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=f"Информация о товаре: {product.name}",
-        reply_markup=markup
-    )
+    except Exception as e:
+        # В случае ошибки показываем сообщение об ошибке
+        print(f"[ERROR] Ошибка при показе меню товара: {e}")
+        logger.error(f"[ERROR] Ошибка при показе меню товара: {e}")
+        
+        error_markup = InlineKeyboardMarkup()
+        back_btn = InlineKeyboardButton("⬅️ Назад к категориям", callback_data="back_to_categories")
+        error_markup.add(back_btn)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Произошла ошибка при загрузке информации о товаре. Пожалуйста, попробуйте позже.",
+            reply_markup=error_markup
+        )
 
 def send_long_message(chat_id: int, text: str, message_id: int = None) -> None:
     """Отправка длинного текста с разбивкой на сообщения"""
@@ -157,74 +252,98 @@ def send_long_message(chat_id: int, text: str, message_id: int = None) -> None:
 
 def show_product_info(call: CallbackQuery) -> None:
     """Показать информацию о товаре (инструкция/FAQ/гарантия)"""
-    info_type, product_id = call.data.split('_')
-    product_id = int(product_id)
-    product = goods.objects.get(id=product_id)
-    
-    markup = InlineKeyboardMarkup()
-    back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}")
-    markup.add(back_btn)
-    
-    if info_type == "instructions":
-        text = f"📖 Инструкция по применению {product.name}:\n\n{product.instructions}"
-    elif info_type == "faq":
-        text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{product.FAQ}"
-    elif info_type == "warranty":
-        # Получаем информацию о расширенной гарантии
+    try:
+        info_type, product_id = call.data.split('_')
+        product_id = int(product_id)
+        
         try:
+            product = goods.objects.get(id=product_id)
+        except goods.DoesNotExist:
+            # Если товар не найден, возвращаемся к списку категорий
+            bot.answer_callback_query(call.id, "Товар не найден. Возможно, он был удален.")
+            show_categories(call.message.chat.id, call.message.message_id)
+            return
+        
+        markup = InlineKeyboardMarkup()
+        back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}")
+        markup.add(back_btn)
+        
+        if info_type == "instructions":
+            text = f"📖 Инструкция по применению {product.name}:\n\n{product.instructions}"
+        elif info_type == "faq":
+            text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{product.FAQ}"
+        elif info_type == "warranty":
+            # Получаем информацию о расширенной гарантии
+            try:
+                user = User.objects.get(telegram_id=call.message.chat.id)
+                extended_warranties = user.extended_warranty_products or {}
+                
+                if isinstance(extended_warranties, str):
+                    extended_warranties = json.loads(extended_warranties)
+                
+                # Проверяем, есть ли расширенная гарантия на данный товар
+                has_warranty = str(product_id) in extended_warranties
+                
+                # Формируем текст с информацией о стандартной и расширенной гарантии
+                standard_warranty_text = f"🛡️ Условия гарантии на {product.name}:\n\n{product.warranty}"
+                
+                if has_warranty:
+                    # Если у пользователя уже есть расширенная гарантия
+                    extended_text = f"\n\n{EXTENDED_WARRANTY_AVAILABLE}"
+                else:
+                    # Если расширенной гарантии нет, показываем информацию о том, как её получить
+                    extended_text = f"\n\n{EXTENDED_WARRANTY_NOT_AVAILABLE}\n\n{EXTENDED_WARRANTY_ACTIVATION}"
+                
+                text = standard_warranty_text + extended_text
+                
+                # Создаем клавиатуру с кнопкой активации расширенной гарантии, если её нет
+                markup = get_warranty_markup_with_extended(product_id, has_warranty)
+                
+            except Exception as e:
+                # В случае ошибки, показываем только стандартную гарантию
+                print(f"Ошибка при отображении информации о расширенной гарантии: {e}")
+                text = f"🛡️ Условия гарантии на {product.name}:\n\n{product.warranty}"
+        elif info_type == "support":
+            text = SUPPORT_TEXT
             user = User.objects.get(telegram_id=call.message.chat.id)
-            extended_warranties = user.extended_warranty_products or {}
-            
-            if isinstance(extended_warranties, str):
-                extended_warranties = json.loads(extended_warranties)
-            
-            # Проверяем, есть ли расширенная гарантия на данный товар
-            has_warranty = str(product_id) in extended_warranties
-            
-            # Формируем текст с информацией о стандартной и расширенной гарантии
-            standard_warranty_text = f"🛡️ Условия гарантии на {product.name}:\n\n{product.warranty}"
-            
-            if has_warranty:
-                # Если у пользователя уже есть расширенная гарантия
-                extended_text = f"\n\n{EXTENDED_WARRANTY_AVAILABLE}"
-            else:
-                # Если расширенной гарантии нет, показываем информацию о том, как её получить
-                extended_text = f"\n\n{EXTENDED_WARRANTY_NOT_AVAILABLE}\n\n{EXTENDED_WARRANTY_ACTIVATION}"
-            
-            text = standard_warranty_text + extended_text
-            
-            # Создаем клавиатуру с кнопкой активации расширенной гарантии, если её нет
-            markup = get_warranty_markup_with_extended(product_id, has_warranty)
-            
-        except Exception as e:
-            # В случае ошибки, показываем только стандартную гарантию
-            print(f"Ошибка при отображении информации о расширенной гарантии: {e}")
-            text = f"🛡️ Условия гарантии на {product.name}:\n\n{product.warranty}"
-    elif info_type == "support":
-        text = SUPPORT_TEXT
-        user = User.objects.get(telegram_id=call.message.chat.id)
-        user.is_ai = True
-        user.chat_history = {}  # Сбрасываем историю чата
-        user.save()
-    else:
-        return
+            user.is_ai = True
+            user.chat_history = {}  # Сбрасываем историю чата
+            user.save()
+        else:
+            return
+        
+        # Отправляем текст с учетом возможной длины
+        send_long_message(call.message.chat.id, text, call.message.message_id)
+        
+        # Отправляем кнопку "Назад" отдельным сообщением, если текст был разбит
+        if len(text) > 4096:
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text="Используйте кнопку ниже для навигации:",
+                reply_markup=markup
+            )
+        else:
+            # Если текст короткий, добавляем кнопку к сообщению
+            bot.edit_message_reply_markup(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=markup
+            )
     
-    # Отправляем текст с учетом возможной длины
-    send_long_message(call.message.chat.id, text, call.message.message_id)
-    
-    # Отправляем кнопку "Назад" отдельным сообщением, если текст был разбит
-    if len(text) > 4096:
-        bot.send_message(
-            chat_id=call.message.chat.id,
-            text="Используйте кнопку ниже для навигации:",
-            reply_markup=markup
-        )
-    else:
-        # Если текст короткий, добавляем кнопку к сообщению
-        bot.edit_message_reply_markup(
+    except Exception as e:
+        # В случае ошибки показываем сообщение об ошибке
+        print(f"[ERROR] Ошибка при показе информации о товаре: {e}")
+        logger.error(f"[ERROR] Ошибка при показе информации о товаре: {e}")
+        
+        error_markup = InlineKeyboardMarkup()
+        back_btn = InlineKeyboardButton("⬅️ Назад к категориям", callback_data="back_to_categories")
+        error_markup.add(back_btn)
+        
+        bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            reply_markup=markup
+            text="Произошла ошибка при загрузке информации. Пожалуйста, попробуйте позже.",
+            reply_markup=error_markup
         )
 
 def activate_warranty(call: CallbackQuery) -> None:
@@ -296,6 +415,34 @@ def check_screenshot(message: Message) -> None:
             print(f"[LOG] СООБЩЕНИЕ НЕ СОДЕРЖИТ ФОТО")
             logger.info(f"[LOG] СООБЩЕНИЕ НЕ СОДЕРЖИТ ФОТО")
             return
+        
+        # Получаем или создаем пользователя
+        user, created = User.objects.get_or_create(telegram_id=message.chat.id)
+        
+        # Проверяем лимит скриншотов в день
+        today = timezone.now().date()
+        
+        # Если дата последнего скриншота не сегодня, сбрасываем счетчик
+        if user.last_screenshot_date != today:
+            user.screenshots_count = 0
+            user.last_screenshot_date = today
+        
+        # Проверяем, не превышен ли лимит
+        if user.screenshots_count >= 3:
+            # Отправляем сообщение о лимите
+            bot.send_message(
+                chat_id=message.chat.id,
+                text=SCREENSHOT_LIMIT_REACHED
+            )
+            print(f"[LOG] Пользователь {message.chat.id} достиг лимита скриншотов")
+            logger.info(f"[LOG] Пользователь {message.chat.id} достиг лимита скриншотов")
+            return
+        
+        # Увеличиваем счетчик скриншотов
+        user.screenshots_count += 1
+        user.save()
+        print(f"[LOG] Счетчик скриншотов для пользователя {message.chat.id}: {user.screenshots_count}")
+        logger.info(f"[LOG] Счетчик скриншотов для пользователя {message.chat.id}: {user.screenshots_count}")
         
         # Отправляем мгновенное подтверждение получения фото
         msg = bot.send_message(
@@ -676,6 +823,10 @@ def back_to_main(call: CallbackQuery) -> None:
         text=MAIN_TEXT,
         reply_markup=main_markup
     )
+
+def back_to_categories(call: CallbackQuery) -> None:
+    """Обработчик для возврата к списку категорий"""
+    show_categories(call.message.chat.id, call.message.message_id)
 
 def support_menu(call: CallbackQuery) -> None:
     """Обработчик для отображения меню поддержки"""

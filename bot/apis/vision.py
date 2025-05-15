@@ -62,7 +62,7 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
             
             # Вызываем модель с поддержкой компьютерного зрения, но с меньшим потреблением токенов
             response = openai.chat.completions.create(
-                model="gpt-4o-mini",  # Используем более легкую модель
+                model="vis-google/gemini-flash-1.5",  # Используем более легкую модель
                 messages=messages,
                 max_tokens=50  # Ограничиваем количество токенов для экономии
             )

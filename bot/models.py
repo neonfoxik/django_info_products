@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 
 class User(models.Model):
@@ -25,6 +26,14 @@ class User(models.Model):
         null=True,
         blank=True,
         default=dict
+    )
+    screenshots_count = models.IntegerField(
+        default=0,
+        verbose_name='Количество отправленных скриншотов за день'
+    )
+    last_screenshot_date = models.DateField(
+        default=timezone.now,
+        verbose_name='Дата последней отправки скриншота'
     )
     def __str__(self):
         return str(self.user_name)

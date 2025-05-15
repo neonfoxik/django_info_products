@@ -9,12 +9,13 @@ from telebot.apihelper import ApiTelegramException
 from telebot.types import Update
 
 from bot import bot, logger
+from bot.cron import reset_screenshot_counters
 
 # Импортируем все обработчики из handlers/__init__.py
 from bot.handlers import (
     start, menu_call, back_to_main, support_menu, 
-    show_category_products, show_product_menu, show_product_info,
-    chat_with_ai, activate_warranty,
+    show_categories, show_category_products, show_product_menu, show_product_info,
+    chat_with_ai, activate_warranty, back_to_categories,
     cancel_warranty_activation, show_my_warranties, check_screenshot,
     confirm_review, cancel_review
 )
@@ -31,6 +32,25 @@ def set_webhook(request: HttpRequest) -> JsonResponse:
 @require_GET
 def status(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"message": "OK"}, status=200)
+
+
+@require_GET
+def run_reset_screenshot_counters(request: HttpRequest) -> JsonResponse:
+    """
+    Ручной запуск задачи сброса счетчиков скриншотов
+    Эндпоинт может вызываться внешним cron-сервисом для регулярного запуска
+    """
+    # Проверка секретного ключа для безопасности
+    secret_key = request.GET.get('key', '')
+    if secret_key != settings.CRON_SECRET_KEY:
+        return JsonResponse({"message": "Unauthorized"}, status=403)
+    
+    try:
+        result = reset_screenshot_counters()
+        return JsonResponse({"message": "OK", "result": result}, status=200)
+    except Exception as e:
+        logger.error(f"Error running reset_screenshot_counters: {e}")
+        return JsonResponse({"message": "Error", "error": str(e)}, status=500)
 
 
 @csrf_exempt
@@ -70,7 +90,7 @@ text_handler = bot.message_handler(func=lambda message: True)(chat_with_ai)
 # Обработчики для категорий и товаров
 category_handler = bot.callback_query_handler(lambda c: c.data.startswith("category_"))(show_category_products)
 product_handler = bot.callback_query_handler(lambda c: c.data.startswith("product_"))(show_product_menu)
-back_to_categories = bot.callback_query_handler(lambda c: c.data == "back_to_categories")(menu_call)
+back_to_categories_handler = bot.callback_query_handler(lambda c: c.data == "back_to_categories")(back_to_categories)
 
 # Обработчики для информации о товаре
 instructions_handler = bot.callback_query_handler(lambda c: c.data.startswith("instructions_"))(show_product_info)
