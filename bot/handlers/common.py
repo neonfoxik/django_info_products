@@ -734,14 +734,14 @@ def show_my_warranties(call: CallbackQuery) -> None:
         else:
             # Формируем список товаров с расширенной гарантией
             text = "🛡️ Товары с активированной расширенной гарантией:\n\n"
-            current_date = timezone.now()
+            current_date = timezone.now().date()
             
             for product_id in extended_warranties:
                 try:
                     product_info = extended_warranty_info.get(str(product_id))
                     if product_info:
                         # Проверяем, не истек ли срок гарантии
-                        end_date = timezone.datetime.strptime(product_info['end_date'], "%d.%m.%Y")
+                        end_date = timezone.datetime.strptime(product_info['end_date'], "%d.%m.%Y").date()
                         if current_date > end_date:
                             status = "❌ Истекла"
                         else:
