@@ -84,9 +84,9 @@ def show_categories(chat_id: int, message_id: int = None) -> None:
                     callback_data=f"category_{category.id}"
                 )
                 markup.add(btn)
-            
-            text = "Выберите категорию товаров:"
-            
+        
+        text = "Выберите категорию товаров:"
+        
         # Отправляем сообщение
         if message_id:
             bot.edit_message_text(
@@ -157,7 +157,7 @@ def show_category_products(call: CallbackQuery) -> None:
                 markup.add(btn)
             
             text = f"Товары в категории {category.name}:"
-        
+            
         # Добавляем кнопку "Назад"
         back_btn = InlineKeyboardButton("⬅️ Назад к категориям", callback_data="back_to_categories")
         markup.add(back_btn)
@@ -199,7 +199,7 @@ def show_product_menu(call: CallbackQuery) -> None:
             return
         
         markup = get_product_menu_markup(product_id)
-        
+    
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -288,8 +288,8 @@ def show_product_info(call: CallbackQuery) -> None:
                 standard_warranty_text = f"🛡️ Условия гарантии на {product.name}:\n\n{product.warranty}"
                 
                 if has_warranty:
-                    # Если у пользователя уже есть расширенная гарантия
-                    extended_text = f"\n\n{EXTENDED_WARRANTY_AVAILABLE}"
+                    # Если у пользователя уже есть расширенная гарантия, показываем текст из модели
+                    extended_text = f"\n\n🛡️ Условия расширенной гарантии на {product.name}:\n\n{product.extended_warranty}"
                 else:
                     # Если расширенной гарантии нет, показываем информацию о том, как её получить
                     extended_text = f"\n\n{EXTENDED_WARRANTY_NOT_AVAILABLE}\n\n{EXTENDED_WARRANTY_ACTIVATION}"
@@ -586,19 +586,22 @@ def activate_extended_warranty(chat_id, product_id, message_id=None):
         
         print(f"[LOG] Гарантия активирована для товара {product_id}")
         
+        # Формируем сообщение об успешной активации с текстом расширенной гарантии
+        success_text = f"✅ Расширенная гарантия успешно активирована!\n\n🛡️ Условия расширенной гарантии на {product.name}:\n\n{product.extended_warranty}"
+        
         # Отправляем сообщение об успешной активации
         if message_id:
             # Обновляем существующее сообщение
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text=EXTENDED_WARRANTY_ACTIVATED
+                text=success_text
             )
         else:
             # Отправляем новое сообщение
             bot.send_message(
                 chat_id=chat_id,
-                text=EXTENDED_WARRANTY_ACTIVATED
+                text=success_text
             )
         
         # Добавляем кнопку возврата
@@ -727,7 +730,7 @@ def chat_with_ai(message: Message) -> None:
             return
         
         from bot.apis.ai import OpenAIAPI
-        
+    
         user = User.objects.get(telegram_id=message.chat.id)
         
         # Проверяем, активирован ли режим общения с ИИ

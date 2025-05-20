@@ -75,8 +75,7 @@ class goods(models.Model):
         verbose_name='Условия гарантия'
     )
     extended_warranty = models.TextField(
-        verbose_name='Условия расширенной гарантии',
-        default='Для получения расширенной гарантии оставьте отзыв с оценкой 5 звезд на товар.'
+        verbose_name='Условия расширенной гарантии'
     )
 
     def __str__(self):
