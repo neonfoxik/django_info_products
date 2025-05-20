@@ -80,6 +80,7 @@ start = bot.message_handler(commands=["start"])(start)
 menu_call = bot.callback_query_handler(lambda c: c.data == "menu")(menu_call)
 back_to_main_handler = bot.callback_query_handler(lambda c: c.data == "back_to_main")(back_to_main)
 support_menu_handler = bot.callback_query_handler(lambda c: c.data == "support_menu")(support_menu)
+my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "my_warranties")(show_my_warranties)
 
 # Явный обработчик для фотографий
 photo_handler = bot.message_handler(content_types=['photo'])(check_screenshot)
@@ -101,7 +102,6 @@ support_handler = bot.callback_query_handler(lambda c: c.data.startswith("suppor
 # Обработчики для расширенной гарантии
 activate_warranty_handler = bot.callback_query_handler(lambda c: c.data.startswith("activate_warranty_"))(activate_warranty)
 cancel_warranty_handler = bot.callback_query_handler(lambda c: c.data.startswith("cancel_warranty_"))(cancel_warranty_activation)
-my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "my_warranties")(show_my_warranties)
 
 # Обработчики для подтверждения скриншотов отзывов
 confirm_review_handler = bot.callback_query_handler(lambda c: c.data.startswith("confirm_review_"))(confirm_review)

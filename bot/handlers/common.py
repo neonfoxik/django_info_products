@@ -794,15 +794,36 @@ def show_my_warranties(call: CallbackQuery) -> None:
         
         markup = back_to_main_markup
         
-        bot.edit_message_text(
+        try:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=text,
+                reply_markup=markup
+            )
+        except Exception as e:
+            # Если не удалось отредактировать сообщение, отправляем новое
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text=text,
+                reply_markup=markup
+            )
+            
+    except User.DoesNotExist:
+        # Если пользователь не найден, отправляем сообщение об ошибке
+        bot.send_message(
             chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=text,
-            reply_markup=markup
+            text="Произошла ошибка при получении информации о гарантиях. Пожалуйста, попробуйте позже.",
+            reply_markup=back_to_main_markup
         )
     except Exception as e:
         print(f"Ошибка при отображении списка расширенных гарантий: {e}")
-        bot.send_message(call.message.chat.id, "Произошла ошибка при обработке запроса.")
+        logger.error(f"Ошибка при отображении списка расширенных гарантий: {e}")
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text="Произошла ошибка при обработке запроса. Пожалуйста, попробуйте позже.",
+            reply_markup=back_to_main_markup
+        )
 
 def chat_with_ai(message: Message) -> None:
     """Обработчик для общения с ИИ"""
