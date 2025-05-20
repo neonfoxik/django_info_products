@@ -25,7 +25,7 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
         bot: Объект бота для скачивания файла
     
     Returns:
-        dict: Результат анализа с ключами 'success', 'has_5_stars', 'message', 'confidence'
+        dict: Результат анализа с ключами 'success', 'has_5_stars', 'message', 'confidence', 'stars_count'
     """
     try:
         # Получаем файл из Telegram
@@ -41,14 +41,14 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
             messages = [
                 {
                     "role": "system",
-                    "content": "Ищи отзывы с 5 желтыми звездами. НЕ подходят изображения на которых написано только текстом а также те на которых меньше 5 звезд"
+                    "content": "Определи количество звезд в отзыве. Если звезд меньше 5, укажи точное количество. Если 5 звезд, напиши '5 звезд'. Если звезд нет или это не отзыв, напиши 'нет звезд'."
                 },
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": "Есть ли на этом скриншоте отзыв с 5 звездами? Отвечай кратко: да/нет, уверенность в процентах."
+                            "text": "Сколько звезд в этом отзыве? Отвечай кратко: количество звезд или 'нет звезд'."
                         },
                         {
                             "type": "image_url",
@@ -60,11 +60,11 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
                 }
             ]
             
-            # Вызываем модель с поддержкой компьютерного зрения, но с меньшим потреблением токенов
+            # Вызываем модель с поддержкой компьютерного зрения
             response = openai.chat.completions.create(
-                model="vis-google/gemini-flash-1.5",  # Используем более легкую модель
+                model="vis-google/gemini-flash-1.5",
                 messages=messages,
-                max_tokens=50  # Ограничиваем количество токенов для экономии
+                max_tokens=50
             )
             
             answer = response.choices[0].message.content
@@ -72,51 +72,62 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
             
             # Анализируем ответ модели
             answer_lower = answer.lower()
-            has_5_stars = "да" in answer_lower and "нет" not in answer_lower[:10]
+            
+            # Определяем количество звезд
+            stars_count = 0
+            if "5 звезд" in answer_lower or "5 звезды" in answer_lower:
+                stars_count = 5
+            else:
+                # Ищем число в ответе
+                stars_match = re.search(r'(\d+)', answer)
+                if stars_match:
+                    stars_count = int(stars_match.group(1))
             
             # Определяем уверенность
             confidence = 0
             confidence_match = re.search(r'(\d{1,3})%', answer)
             if confidence_match:
                 confidence = int(confidence_match.group(1))
-            elif has_5_stars and "увер" in answer_lower:
-                # Если есть упоминание уверенности, но без процентов
+            elif stars_count > 0:
                 confidence = 80
-            elif has_5_stars:
-                # Если просто "да", берем базовую уверенность
-                confidence = 75
             
-            # Принимаем результат, если уверенность >= 70% или явно указано "да"
-            is_valid = has_5_stars and confidence >= 70
+            # Формируем сообщение в зависимости от количества звезд
+            if stars_count == 5:
+                message = "Отзыв с 5 звездами подтвержден!"
+                has_5_stars = True
+            elif stars_count > 0:
+                message = f"В отзыве обнаружено {stars_count} звезд. Для получения расширенной гарантии необходимо оставить отзыв с 5 звездами."
+                has_5_stars = False
+            else:
+                message = "Не удалось обнаружить звезды в отзыве. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с рейтингом."
+                has_5_stars = False
             
             return {
                 'success': True,
-                'has_5_stars': is_valid,
-                'message': answer,
-                'confidence': confidence
+                'has_5_stars': has_5_stars,
+                'message': message,
+                'confidence': confidence,
+                'stars_count': stars_count
             }
             
         except Exception as e:
-            # Если что-то пошло не так с API или анализом, используем локальный анализ
             logger.error(f"[VISION] Ошибка при вызове API Vision: {e}")
             logger.info("[VISION] Переключаемся на локальный анализ изображения")
             
-            # Простой анализ изображения без внешнего API
-            # Здесь мы даем пользователю сомнение в пользу, т.к. не можем проверить
-            # Но требуем дополнительное подтверждение
             return {
                 'success': True,
-                'has_5_stars': False,  # Требуем подтверждения от пользователя
+                'has_5_stars': False,
                 'message': "Не удалось автоматически проверить наличие 5-звездочного отзыва. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с 5 звездами и отправьте его снова или подтвердите вручную.",
-                'confidence': 0
+                'confidence': 0,
+                'stars_count': 0
             }
             
     except Exception as e:
         logger.error(f"[VISION] Ошибка при анализе скриншота: {e}")
-        # В случае общей ошибки требуем у пользователя подтверждение
         return {
             'success': False,
-            'has_5_stars': False,  # По умолчанию НЕ принимаем как валидный
+            'has_5_stars': False,
             'message': f"Не удалось проанализировать изображение. Пожалуйста, отправьте более четкий скриншот с 5-звездочным отзывом.",
-            'confidence': 0
+            'confidence': 0,
+            'stars_count': 0
         } 
