@@ -27,6 +27,12 @@ class User(models.Model):
         blank=True,
         default=dict
     )
+    extended_warranty_info = models.JSONField(
+        verbose_name='Информация о товарах с расширенной гарантией',
+        null=True,
+        blank=True,
+        default=dict
+    )
     screenshots_count = models.IntegerField(
         default=0,
         verbose_name='Количество отправленных скриншотов за день'
@@ -74,8 +80,9 @@ class goods(models.Model):
     warranty = models.TextField(
         verbose_name='Условия гарантия'
     )
-    extended_warranty = models.TextField(
-        verbose_name='Условия расширенной гарантии'
+    extended_warranty = models.FloatField(
+        verbose_name='Срок расширенной гарантии (в годах)',
+        default=1.0
     )
 
     def __str__(self):

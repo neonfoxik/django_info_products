@@ -578,27 +578,60 @@ def activate_extended_warranty(chat_id, product_id, message_id=None):
         extended_warranties = user.extended_warranty_products or {}
         if isinstance(extended_warranties, str):
             extended_warranties = json.loads(extended_warranties)
+            
+        extended_warranty_info = user.extended_warranty_info or {}
+        if isinstance(extended_warranty_info, str):
+            extended_warranty_info = json.loads(extended_warranty_info)
         
         # Добавляем товар в список товаров с расширенной гарантией
         extended_warranties[str(product_id)] = True
+        
+        # Рассчитываем дату окончания гарантии
+        current_date = timezone.now()
+        warranty_years = product.extended_warranty
+        end_date = current_date + timezone.timedelta(days=int(warranty_years * 365))
+        
+        # Форматируем дату окончания
+        end_date_str = end_date.strftime("%d.%m.%Y")
+        
+        # Форматируем срок гарантии
+        if warranty_years.is_integer():
+            warranty_text = f"{int(warranty_years)} {'год' if warranty_years == 1 else 'года' if 1 < warranty_years < 5 else 'лет'}"
+        else:
+            months = int(warranty_years * 12)
+            warranty_text = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
+        
+        # Сохраняем информацию о товаре
+        extended_warranty_info[str(product_id)] = {
+            'name': product.name,
+            'activation_date': current_date.strftime("%d.%m.%Y"),
+            'end_date': end_date_str,
+            'warranty_period': warranty_text
+        }
+        
         user.extended_warranty_products = extended_warranties
+        user.extended_warranty_info = extended_warranty_info
         user.save()
         
         print(f"[LOG] Гарантия активирована для товара {product_id}")
         
-        # Формируем сообщение об успешной активации с текстом расширенной гарантии
-        success_text = f"✅ Расширенная гарантия успешно активирована!\n\n🛡️ Условия расширенной гарантии на {product.name}:\n\n{product.extended_warranty}"
+        # Формируем сообщение об успешной активации
+        success_text = (
+            f"✅ Расширенная гарантия успешно активирована!\n\n"
+            f"🛡️ Информация о расширенной гарантии на {product.name}:\n"
+            f"📅 Дата активации: {current_date.strftime('%d.%m.%Y')}\n"
+            f"⏳ Срок гарантии: {warranty_text}\n"
+            f"📆 Дата окончания: {end_date_str}"
+        )
         
         # Отправляем сообщение об успешной активации
         if message_id:
-            # Обновляем существующее сообщение
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
                 text=success_text
             )
         else:
-            # Отправляем новое сообщение
             bot.send_message(
                 chat_id=chat_id,
                 text=success_text
@@ -688,22 +721,76 @@ def show_my_warranties(call: CallbackQuery) -> None:
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
         extended_warranties = user.extended_warranty_products or {}
+        extended_warranty_info = user.extended_warranty_info or {}
         
         if isinstance(extended_warranties, str):
             extended_warranties = json.loads(extended_warranties)
+        if isinstance(extended_warranty_info, str):
+            extended_warranty_info = json.loads(extended_warranty_info)
         
         if not extended_warranties:
             # Если нет активированных гарантий
             text = "У вас пока нет активированных расширенных гарантий на товары."
         else:
             # Формируем список товаров с расширенной гарантией
-            text = "Товары с активированной расширенной гарантией:\n\n"
+            text = "🛡️ Товары с активированной расширенной гарантией:\n\n"
+            current_date = timezone.now()
+            
             for product_id in extended_warranties:
                 try:
-                    product = goods.objects.get(id=int(product_id))
-                    text += f"✅ {product.name}\n"
+                    product_info = extended_warranty_info.get(str(product_id))
+                    if product_info:
+                        # Проверяем, не истек ли срок гарантии
+                        end_date = timezone.datetime.strptime(product_info['end_date'], "%d.%m.%Y")
+                        if current_date > end_date:
+                            status = "❌ Истекла"
+                        else:
+                            status = "✅ Активна"
+                            
+                        text += (
+                            f"{status}\n"
+                            f"📱 {product_info['name']}\n"
+                            f"⏳ Срок: {product_info['warranty_period']}\n"
+                            f"📅 Активация: {product_info['activation_date']}\n"
+                            f"📆 Окончание: {product_info['end_date']}\n\n"
+                        )
+                    else:
+                        # Если информация о товаре не найдена, пытаемся получить её из базы данных
+                        product = goods.objects.get(id=int(product_id))
+                        current_date = timezone.now()
+                        warranty_years = product.extended_warranty
+                        end_date = current_date + timezone.timedelta(days=int(warranty_years * 365))
+                        
+                        # Форматируем срок гарантии
+                        if warranty_years.is_integer():
+                            warranty_text = f"{int(warranty_years)} {'год' if warranty_years == 1 else 'года' if 1 < warranty_years < 5 else 'лет'}"
+                        else:
+                            months = int(warranty_years * 12)
+                            warranty_text = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
+                        
+                        product_info = {
+                            'name': product.name,
+                            'activation_date': current_date.strftime("%d.%m.%Y"),
+                            'end_date': end_date.strftime("%d.%m.%Y"),
+                            'warranty_period': warranty_text
+                        }
+                        
+                        text += (
+                            f"✅ Активна\n"
+                            f"📱 {product_info['name']}\n"
+                            f"⏳ Срок: {product_info['warranty_period']}\n"
+                            f"📅 Активация: {product_info['activation_date']}\n"
+                            f"📆 Окончание: {product_info['end_date']}\n\n"
+                        )
+                        
+                        # Сохраняем информацию для будущего использования
+                        extended_warranty_info[str(product_id)] = product_info
                 except goods.DoesNotExist:
                     continue
+            
+            # Сохраняем обновленную информацию
+            user.extended_warranty_info = extended_warranty_info
+            user.save()
         
         markup = back_to_main_markup
         
