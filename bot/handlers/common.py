@@ -284,11 +284,19 @@ def show_product_info(call: CallbackQuery) -> None:
                 # Проверяем, есть ли расширенная гарантия на данный товар
                 has_warranty = str(product_id) in extended_warranties
                 
-                # Формируем текст с информацией о стандартной гарантии
-                standard_warranty_text = (
-                    f"🛡️ Условия гарантии на {product.name}:\n\n"
-                    f"{product.warranty} лет действует гарантия на этот продукт со времени отправки скриншота отзыва\n"
-                )
+                # Форматируем срок гарантии для условий
+                warranty_years = product.extended_warranty
+                if warranty_years < 1:
+                    months = int(warranty_years * 12)
+                    warranty_period = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
+                else:
+                    years = int(warranty_years) if warranty_years.is_integer() else warranty_years
+                    if years == 1:
+                        warranty_period = "1 год"
+                    elif years in [2, 3, 4]:
+                        warranty_period = f"{years} года"
+                    else:
+                        warranty_period = f"{years} лет"
                 
                 if has_warranty:
                     # Если у пользователя уже есть расширенная гарантия
@@ -298,29 +306,25 @@ def show_product_info(call: CallbackQuery) -> None:
                     
                     warranty_info = extended_warranty_info.get(str(product_id), {})
                     
-                    extended_text = (
-                        f"\n✨ Расширенная гарантия активирована!\n\n"
+                    text = (
+                        f"🛡️ Информация о расширенной гарантии на {product.name}:\n"
                         f"📅 Дата активации: {warranty_info.get('activation_date', 'Не указана')}\n"
-                        f"⏳ Срок гарантии: {warranty_info.get('warranty_period', 'Не указан')}\n"
-                        f"📆 Дата окончания: {warranty_info.get('end_date', 'Не указана')}\n\n"
-                        f"🛡️ Условия расширенной гарантии:\n"
-                        f"{product.extended_warranty}"
+                        f"⏳ Срок гарантии: {warranty_period}\n"
+                        f"📆 Дата окончания: {warranty_info.get('end_date', 'Не указана')}"
                     )
                 else:
                     # Если расширенной гарантии нет, показываем информацию о том, как её получить
-                    extended_text = (
-                        f"\n✨ Как получить расширенную гарантию?\n\n"
+                    text = (
+                        f"🛡️ Условия гарантии на {product.name}:\n\n"
+                        f"{product.warranty}\n\n"
+                        f"✨ Как получить расширенную гарантию?\n\n"
                         f"1️⃣ Оставьте отзыв с 5 звездами о товаре\n"
                         f"2️⃣ Сделайте скриншот отзыва\n"
                         f"3️⃣ Отправьте скриншот боту\n\n"
-                        f"После проверки отзыва, вы получите расширенную гарантию сроком на "
-                        f"{int(product.extended_warranty) if product.extended_warranty.is_integer() else product.extended_warranty} "
-                        f"{'год' if product.extended_warranty == 1 else 'года' if 1 < product.extended_warranty < 5 else 'лет'}!\n\n"
+                        f"После проверки отзыва, вы получите расширенную гарантию сроком на {warranty_period}!\n\n"
                         f"🛡️ Условия расширенной гарантии:\n"
-                        f"{product.extended_warranty}"
+                        f"{warranty_period}"
                     )
-                
-                text = standard_warranty_text + extended_text
                 
                 # Создаем клавиатуру с кнопкой активации расширенной гарантии, если её нет
                 markup = get_warranty_markup_with_extended(product_id, has_warranty)
