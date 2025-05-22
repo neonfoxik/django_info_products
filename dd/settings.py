@@ -27,6 +27,7 @@ LOCAL = os.getenv('LOCAL')
 
 ALLOWED_HOSTS = ["*"]
 
+CHAT_LOG_ID = os.getenv('CHAT_LOG_ID')
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 OWNER_ID = os.getenv('OWNER_ID')
 HOOK = os.getenv('HOOK')

@@ -21,14 +21,8 @@ class User(models.Model):
         blank=True,
         default=dict
     )
-    extended_warranty_products = models.JSONField(
-        verbose_name='Товары с расширенной гарантией',
-        null=True,
-        blank=True,
-        default=dict
-    )
-    extended_warranty_info = models.JSONField(
-        verbose_name='Информация о товарах с расширенной гарантией',
+    warranty_data = models.JSONField(
+        verbose_name='Данные о гарантиях и скриншотах',
         null=True,
         blank=True,
         default=dict
