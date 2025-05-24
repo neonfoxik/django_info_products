@@ -11,6 +11,10 @@ class User(models.Model):
         max_length=35,
         verbose_name='Имя',
     )
+    is_admin = models.BooleanField(
+        default=False,
+        verbose_name='Является ли администратором'
+    )
     is_ai = models.BooleanField(
         default=False,
         verbose_name='Используется ли AI'
@@ -64,6 +68,12 @@ class goods(models.Model):
     name = models.CharField(
         max_length=100,
         verbose_name='Название товара'
+    )
+    image = models.ImageField(
+        upload_to='products/',
+        verbose_name='Изображение товара',
+        null=True,
+        blank=True
     )
     instructions = models.TextField(
         verbose_name='Инструкция по применению'

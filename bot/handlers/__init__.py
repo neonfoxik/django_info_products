@@ -15,7 +15,9 @@ from .common import (
     show_my_warranties,
     check_screenshot,
     confirm_review,
-    cancel_review
+    cancel_review,
+    send_excel_to_admin,
+    admin_command
 )
 
 from .registration import start_registration

@@ -1,7 +1,10 @@
 from telebot.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
 )
+from django.conf import settings
 
 # Главное меню
 main_markup = InlineKeyboardMarkup()
@@ -44,4 +47,18 @@ def get_warranty_markup_with_extended(product_id, has_extended_warranty=False):
 def get_screenshot_markup(product_id):
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_warranty_{product_id}"))
+    return markup
+
+def get_main_markup(user_id: int) -> ReplyKeyboardMarkup:
+    """Создает главное меню с учетом роли пользователя"""
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    
+    # Базовые кнопки для всех пользователей
+    markup.add(KeyboardButton("📱 Товары"))
+    markup.add(KeyboardButton("📞 Поддержка"))
+    
+    # Добавляем кнопку админ-панели только для админа
+    if str(user_id) == str(settings.OWNER_ID):
+        markup.add(KeyboardButton("🔧 Админ-панель"))
+    
     return markup

@@ -508,18 +508,21 @@ def check_screenshot(message: Message) -> None:
             # Анализируем скриншот с помощью компьютерного зрения
             try:
                 print(f"[LOG] Начинаем анализ скриншота")
-                analysis_result = analyze_screenshot(photo, bot)
+                analysis_result = analyze_screenshot(photo, bot, product_id)
                 print(f"[LOG] Результат анализа: {analysis_result}")
                 
                 is_valid = analysis_result['has_5_stars']
                 confidence = analysis_result.get('confidence', 0)
                 stars_count = analysis_result.get('stars_count', 0)
                 review_date = analysis_result.get('review_date')
+                product_match = analysis_result.get('product_match')
                 
                 # Логируем результат анализа
                 print(f"[LOG] Скриншот содержит {stars_count} звезд, уверенность: {confidence}%")
                 if review_date:
                     print(f"[LOG] Дата отзыва: {review_date}")
+                if product_match is not None:
+                    print(f"[LOG] Соответствие товара: {product_match}")
                 logger.info(f"[LOG] Скриншот содержит {stars_count} звезд, уверенность: {confidence}%")
                 
                 # Отправляем информацию в лог-чат
@@ -535,8 +538,10 @@ def check_screenshot(message: Message) -> None:
                             f"⭐️ Количество звезд: {stars_count}\n"
                             f"📊 Уверенность: {confidence}%\n"
                             f"📅 Дата отзыва: {review_date}\n"
-                            f"✅ Результат проверки: {'Успешно' if is_valid else 'Не пройдена'}"
                         )
+                        if product_match is not None:
+                            log_message += f"🔄 Соответствие товара: {'Да' if product_match else 'Нет'}\n"
+                        log_message += f"✅ Результат проверки: {'Успешно' if is_valid else 'Не пройдена'}"
                         
                         # Отправляем скриншот с информацией одним сообщением
                         bot.send_photo(
@@ -549,10 +554,12 @@ def check_screenshot(message: Message) -> None:
                         logger.error(f"[ERROR] Ошибка при отправке лога: {e}")
                 
                 # Если скриншот не подтвержден или уверенность слишком низкая
-                if not is_valid:
-                    # Формируем сообщение в зависимости от количества звезд
+                if not is_valid or (product_match is False):
+                    # Формируем сообщение в зависимости от результатов проверки
+                    message_parts = []
+                    
                     if stars_count > 0 and stars_count < 5:
-                        message_text = (
+                        message_parts.append(
                             f"Мы сожалеем, что вам не понравился наш продукт. 😔\n\n"
                             f"В вашем отзыве обнаружено {stars_count} звезд. К сожалению, мы не можем предоставить вам расширенную гарантию, "
                             f"так как не выполнено условие получения - отзыв с 5 звездами.\n\n"
@@ -561,8 +568,14 @@ def check_screenshot(message: Message) -> None:
                             f"2. Отправить скриншот этого отзыва\n\n"
                             f"Вы можете изменить свой отзыв на 5 звезд и отправить новый скриншот."
                         )
+                    elif product_match is False:
+                        message_parts.append(
+                            "Товар в отзыве не соответствует запрошенному. Пожалуйста, убедитесь, что вы отправляете скриншот отзыва правильного товара."
+                        )
                     else:
-                        message_text = analysis_result.get('message', SCREENSHOT_INVALID)
+                        message_parts.append(analysis_result.get('message', SCREENSHOT_INVALID))
+                    
+                    message_text = "\n\n".join(message_parts)
                     
                     # Создаем клавиатуру с кнопками
                     markup = InlineKeyboardMarkup()
@@ -586,8 +599,8 @@ def check_screenshot(message: Message) -> None:
                         reply_markup=markup
                     )
                     
-                    print(f"[LOG] Отправлено сообщение о необходимости 5 звезд")
-                    logger.info(f"[LOG] Отправлено сообщение о необходимости 5 звезд")
+                    print(f"[LOG] Отправлено сообщение о необходимости 5 звезд или правильного товара")
+                    logger.info(f"[LOG] Отправлено сообщение о необходимости 5 звезд или правильного товара")
                     return
                 
                 # Если скриншот прошел проверку
@@ -1073,3 +1086,147 @@ def support_menu(call: CallbackQuery) -> None:
         text=SUPPORT_TEXT,
         reply_markup=back_to_main_markup
     )
+
+def admin_panel(call: CallbackQuery) -> None:
+    """Показывает админ-панель"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        if (user.is_admin==False):
+            bot.answer_callback_query(
+                callback_query_id=call.id,
+                text="У вас нет доступа к админ-панели"
+            )
+            return
+        
+        markup = InlineKeyboardMarkup()
+        excel_btn = InlineKeyboardButton("📊 Получить Excel-таблицу", callback_data="admin_excel")
+        back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
+        markup.add(excel_btn)
+        markup.add(back_btn)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="🔧 Админ-панель\n\nВыберите действие:",
+            reply_markup=markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе админ-панели: {e}")
+        logger.error(f"[ERROR] Ошибка при показе админ-панели: {e}")
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Попробуйте позже."
+        )
+
+def send_excel_to_admin(call: CallbackQuery) -> None:
+    """Отправляет Excel-таблицу админу"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        if (user.is_admin==False):
+            bot.answer_callback_query(
+                callback_query_id=call.id,
+                text="У вас нет доступа к админ-панели"
+            )
+            return
+        
+        # Отправляем сообщение о начале процесса
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="⏳ Подготовка Excel-таблицы..."
+        )
+        
+        # Получаем путь к файлу Excel
+        excel_handler = WarrantyExcelHandler()
+        file_path = excel_handler.file_path
+        
+        # Проверяем существование файла
+        if not os.path.exists(file_path):
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="❌ Файл Excel не найден"
+            )
+            return
+        
+        # Отправляем файл
+        with open(file_path, 'rb') as file:
+            bot.send_document(
+                chat_id=call.message.chat.id,
+                document=file,
+                caption="📊 Таблица с данными о гарантиях"
+            )
+        
+        # Возвращаем админ-панель
+        admin_panel(call)
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при отправке Excel-таблицы: {e}")
+        logger.error(f"[ERROR] Ошибка при отправке Excel-таблицы: {e}")
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"❌ Произошла ошибка при отправке таблицы: {str(e)}"
+        )
+
+@bot.message_handler(func=lambda message: message.text == "🔧 Админ-панель")
+def handle_admin_panel(message: Message) -> None:
+    """Обработчик кнопки админ-панели"""
+    try:
+        user = User.objects.get(telegram_id=message.chat.id)
+        if (user.is_admin==False):
+            bot.answer_callback_query(
+                callback_query_id=message.id,
+                text="У вас нет доступа к админ-панели"
+            )
+            return
+        
+        markup = InlineKeyboardMarkup()
+        excel_btn = InlineKeyboardButton("📊 Получить Excel-таблицу", callback_data="admin_excel")
+        back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
+        markup.add(excel_btn)
+        markup.add(back_btn)
+        
+        bot.reply_to(
+            message,
+            "🔧 Админ-панель\n\nВыберите действие:",
+            reply_markup=markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе админ-панели: {e}")
+        logger.error(f"[ERROR] Ошибка при показе админ-панели: {e}")
+        bot.reply_to(
+            message,
+            "Произошла ошибка. Попробуйте позже."
+        )
+
+@bot.message_handler(commands=['admin'])
+def admin_command(message: Message) -> None:
+    """Обработчик команды /admin"""
+    try:
+        user = User.objects.get(telegram_id=message.chat.id)
+        if (user.is_admin==False):
+            bot.answer_callback_query(
+                callback_query_id=message.id,
+                text="У вас нет доступа к админ-панели"
+            )
+            return
+        
+        markup = InlineKeyboardMarkup()
+        excel_btn = InlineKeyboardButton("📊 Получить Excel-таблицу", callback_data="admin_excel")
+        back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
+        markup.add(excel_btn)
+        markup.add(back_btn)
+        
+        bot.reply_to(
+            message,
+            "🔧 Админ-панель\n\nВыберите действие:",
+            reply_markup=markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе админ-панели: {e}")
+        logger.error(f"[ERROR] Ошибка при показе админ-панели: {e}")
+        bot.reply_to(
+            message,
+            "Произошла ошибка. Попробуйте позже."
+        )

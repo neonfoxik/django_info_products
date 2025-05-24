@@ -16,39 +16,63 @@ openai.base_url = "https://api.vsegpt.ru:6070/v1/"
 
 logger = logging.getLogger(__name__)
 
-def analyze_screenshot(photo: PhotoSize, bot) -> dict:
+def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
     """
-    Анализирует скриншот на наличие 5-звездочного отзыва и даты
+    Анализирует скриншот на наличие 5-звездочного отзыва, даты и соответствие товару
     
     Args:
         photo: Объект фотографии из Telegram
         bot: Объект бота для скачивания файла
+        product_id: ID товара для проверки соответствия
     
     Returns:
-        dict: Результат анализа с ключами 'success', 'has_5_stars', 'message', 'confidence', 'stars_count', 'review_date'
+        dict: Результат анализа с ключами 'success', 'has_5_stars', 'message', 'confidence', 
+              'stars_count', 'review_date', 'product_match'
     """
     try:
         # Получаем файл из Telegram
         file_info = bot.get_file(photo.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
+        # Если передан product_id, получаем изображение товара
+        product_image = None
+        if product_id:
+            from bot.models import goods
+            try:
+                product = goods.objects.get(id=product_id)
+                if product.image:
+                    product_image = product.image.path
+            except goods.DoesNotExist:
+                pass
+        
         # Пробуем сначала использовать более легкую модель для экономии токенов
         try:
             # Кодируем файл в base64 для передачи в API
             base64_image = base64.b64encode(downloaded_file).decode('utf-8')
             
-            # Используем более легкую модель с меньшим количеством токенов
+            # Формируем системное сообщение
+            system_message = "Определи количество звезд в отзыве и дату отзыва. "
+            if product_image:
+                system_message += "Также проверь, соответствует ли отзыв изображенному товару. "
+            system_message += "Если звезд меньше 5, укажи точное количество. Если 5 звезд, напиши '5 звезд'. "
+            system_message += "Если звезд нет или это не отзыв, напиши 'нет звезд'. "
+            system_message += "Если видишь дату отзыва, укажи её в формате ДД.ММ.ГГГГ. "
+            system_message += "Если даты нет, напиши 'нет даты'. "
+            if product_image:
+                system_message += "Если товар соответствует, напиши 'товар соответствует'. "
+                system_message += "Если не соответствует, напиши 'товар не соответствует'."
+            
             messages = [
                 {
                     "role": "system",
-                    "content": "Определи количество звезд в отзыве и дату отзыва. Если звезд меньше 5, укажи точное количество. Если 5 звезд, напиши '5 звезд'. Если звезд нет или это не отзыв, напиши 'нет звезд'. Если видишь дату отзыва, укажи её в формате ДД.ММ.ГГГГ. Если даты нет, напиши 'нет даты'."
+                    "content": system_message
                 },
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": "Сколько звезд в этом отзыве и какая дата отзыва? Отвечай кратко: количество звезд и дата в формате ДД.ММ.ГГГГ или 'нет даты'."
+                            "text": "Проанализируй отзыв и товар. Отвечай кратко: количество звезд, дата в формате ДД.ММ.ГГГГ или 'нет даты', и соответствие товара если указано."
                         },
                         {
                             "type": "image_url",
@@ -59,6 +83,17 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
                     ]
                 }
             ]
+            
+            # Если есть изображение товара, добавляем его в запрос
+            if product_image:
+                with open(product_image, 'rb') as img_file:
+                    product_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+                    messages[1]["content"].append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{product_base64}"
+                        }
+                    })
             
             # Вызываем модель с поддержкой компьютерного зрения
             response = openai.chat.completions.create(
@@ -89,6 +124,14 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
             if date_match:
                 review_date = date_match.group(1)
             
+            # Определяем соответствие товара
+            product_match = None
+            if product_image:
+                if "товар соответствует" in answer_lower:
+                    product_match = True
+                elif "товар не соответствует" in answer_lower:
+                    product_match = False
+            
             # Определяем уверенность
             confidence = 0
             confidence_match = re.search(r'(\d{1,3})%', answer)
@@ -97,16 +140,27 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
             elif stars_count > 0:
                 confidence = 80
             
-            # Формируем сообщение в зависимости от количества звезд
+            # Формируем сообщение в зависимости от результатов
+            message_parts = []
+            
             if stars_count == 5:
-                message = "Отзыв с 5 звездами подтвержден!"
+                message_parts.append("Отзыв с 5 звездами подтвержден!")
                 has_5_stars = True
             elif stars_count > 0:
-                message = f"В отзыве обнаружено {stars_count} звезд. Для получения расширенной гарантии необходимо оставить отзыв с 5 звездами."
+                message_parts.append(f"В отзыве обнаружено {stars_count} звезд. Для получения расширенной гарантии необходимо оставить отзыв с 5 звездами.")
                 has_5_stars = False
             else:
-                message = "Не удалось обнаружить звезды в отзыве. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с рейтингом."
+                message_parts.append("Не удалось обнаружить звезды в отзыве. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с рейтингом.")
                 has_5_stars = False
+            
+            if product_image:
+                if product_match is True:
+                    message_parts.append("Товар в отзыве соответствует запрошенному.")
+                elif product_match is False:
+                    message_parts.append("Товар в отзыве не соответствует запрошенному. Пожалуйста, отправьте скриншот отзыва правильного товара.")
+                    has_5_stars = False
+            
+            message = " ".join(message_parts)
             
             return {
                 'success': True,
@@ -114,7 +168,8 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
                 'message': message,
                 'confidence': confidence,
                 'stars_count': stars_count,
-                'review_date': review_date
+                'review_date': review_date,
+                'product_match': product_match
             }
             
         except Exception as e:
@@ -127,7 +182,8 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
                 'message': "Не удалось автоматически проверить наличие 5-звездочного отзыва. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с 5 звездами и отправьте его снова или подтвердите вручную.",
                 'confidence': 0,
                 'stars_count': 0,
-                'review_date': None
+                'review_date': None,
+                'product_match': None
             }
             
     except Exception as e:
@@ -138,5 +194,6 @@ def analyze_screenshot(photo: PhotoSize, bot) -> dict:
             'message': f"Не удалось проанализировать изображение. Пожалуйста, отправьте более четкий скриншот с 5-звездочным отзывом.",
             'confidence': 0,
             'stars_count': 0,
-            'review_date': None
+            'review_date': None,
+            'product_match': None
         } 
