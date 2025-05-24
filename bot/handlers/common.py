@@ -18,6 +18,7 @@ import random
 import traceback
 from django.utils import timezone
 from django.conf import settings
+from bot.utils.excel_handler import WarrantyExcelHandler
 
 # Словарь для отслеживания процесса активации расширенной гарантии
 warranty_activation_state = {}
@@ -688,13 +689,14 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
             warranty_text = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
         
         # Сохраняем информацию о товаре
-        warranty_data[str(product_id)]['info'] = {
+        warranty_info = {
             'name': product.name,
             'activation_date': start_date_str,
             'end_date': end_date_str,
             'warranty_period': warranty_text,
             'review_date': review_date
         }
+        warranty_data[str(product_id)]['info'] = warranty_info
         
         # Сохраняем скриншот, если он есть
         if photo_id:
@@ -705,6 +707,19 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
         
         user.warranty_data = warranty_data
         user.save()
+
+        # Сохраняем информацию в Excel
+        excel_handler = WarrantyExcelHandler()
+        user_data = {
+            'telegram_id': user.telegram_id,
+            'user_name': user.user_name
+        }
+        product_data = {
+            'id': product.id,
+            'name': product.name
+        }
+        warranty_info['screenshot_id'] = photo_id
+        excel_handler.add_warranty_record(user_data, product_data, warranty_info)
         
         print(f"[LOG] Гарантия активирована для товара {product_id}")
         
