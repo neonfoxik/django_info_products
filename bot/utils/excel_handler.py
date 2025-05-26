@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from django.utils import timezone
 import logging
+import pandas as pd  # Добавляем импорт pandas
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,11 @@ class WarrantyExcelHandler:
     def add_warranty_record(self, user_data, product_data, warranty_info):
         """Добавляет запись о новой гарантии в Excel файл"""
         try:
+            # Проверяем наличие pandas
+            if 'pd' not in globals():
+                logger.error("Модуль pandas не импортирован")
+                return False
+
             # Читаем существующий файл
             df = pd.read_excel(self.file_path)
 
@@ -61,4 +67,4 @@ class WarrantyExcelHandler:
             return True
         except Exception as e:
             logger.error(f"Ошибка при добавлении записи в Excel: {e}")
-            return False 
+            return False
