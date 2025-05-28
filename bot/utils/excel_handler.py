@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from django.utils import timezone
 import logging
+import pandas as pd  # Добавили правильную строку импорта pandas
 
 logger = logging.getLogger(__name__)
 
@@ -61,4 +62,4 @@ class WarrantyExcelHandler:
             return True
         except Exception as e:
             logger.error(f"Ошибка при добавлении записи в Excel: {e}")
-            return False 
+            return False  
