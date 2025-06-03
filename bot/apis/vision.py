@@ -27,7 +27,7 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
     
     Returns:
         dict: Результат анализа с ключами 'success', 'has_5_stars', 'message', 'confidence', 
-              'stars_count', 'review_date', 'product_match'
+              'stars_count', 'review_date', 'product_match', 'is_returned', 'has_multiple_products'
     """
     try:
         # Получаем файл из Telegram
@@ -51,13 +51,16 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             base64_image = base64.b64encode(downloaded_file).decode('utf-8')
             
             # Формируем системное сообщение
-            system_message = "Определи количество звезд в отзыве и дату отзыва. "
+            system_message = "Определи количество желтых звезд в отзыве и дату отзыва. "
             if product_image:
                 system_message += "Также проверь, соответствует ли отзыв изображенному товару. "
-            system_message += "Если звезд меньше 5, укажи точное количество. Если 5 звезд, напиши '5 звезд'. "
-            system_message += "Если звезд нет или это не отзыв, напиши 'нет звезд'. "
+            system_message += "Если желтых звезд меньше 5, укажи точное количество. Если 5 желтых звезд, напиши '5 звезд'. "
+            system_message += "Если желтых звезд нет или это не отзыв, напиши 'нет звезд'. "
             system_message += "Если видишь дату отзыва, укажи её в формате ДД.ММ.ГГГГ. "
+            system_message += "Если дат несколько, используй последнюю (нижнюю) дату. "
             system_message += "Если даты нет, напиши 'нет даты'. "
+            system_message += "Если товаров несколько, напиши 'несколько товаров'. "
+            system_message += "Если товар возвращен или отменен, напиши 'товар возвращен'. "
             if product_image:
                 system_message += "Если товар соответствует, напиши 'товар соответствует'. "
                 system_message += "Если не соответствует, напиши 'товар не соответствует'."
@@ -72,7 +75,11 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                     "content": [
                         {
                             "type": "text",
-                            "text": "Проанализируй отзыв и товар. Отвечай кратко: количество звезд, дата в формате ДД.ММ.ГГГГ или 'нет даты', и соответствие товара если указано."
+                            "text": "Проанализируй отзыв и товар. Отвечай кратко: количество желтых звезд, дата в формате "
+                                    "ДД.ММ.ГГГГ или 'нет даты', и соответствие товара если указано. "
+                                    "Если товар возвращен или отменен, укажи это. "
+                                    "Если дат несколько, используй последнюю."
+                                    "Если товаров несколько, то направляй на переотправку скриншота."
                         },
                         {
                             "type": "image_url",
@@ -120,10 +127,14 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             
             # Определяем дату отзыва
             review_date = None
-            date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})', answer)
-            if date_match:
-                review_date = date_match.group(1)
-            
+            date_matches = re.findall(r'(\d{2}\.\d{2}\.\d{4})', answer)
+            if date_matches:
+                # Берем последнюю дату из списка
+                review_date = date_matches[-1]
+
+            # Определяем, возвращен ли товар
+            is_returned = "товар возвращен" in answer_lower or "товар отменен" in answer_lower
+
             # Определяем соответствие товара
             product_match = None
             if product_image:
@@ -131,7 +142,10 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                     product_match = True
                 elif "товар не соответствует" in answer_lower:
                     product_match = False
-            
+
+            # Проверяем наличие нескольких товаров
+            has_multiple_products = "несколько товаров" in answer_lower
+
             # Определяем уверенность
             confidence = 0
             confidence_match = re.search(r'(\d{1,3})%', answer)
@@ -142,8 +156,14 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             
             # Формируем сообщение в зависимости от результатов
             message_parts = []
-            
-            if stars_count == 5:
+
+            if is_returned:
+                message_parts.append("Товар возвращен или отменен. Расширенная гарантия недоступна.")
+                has_5_stars = False
+            elif has_multiple_products:
+                message_parts.append("На скриншоте обнаружено несколько товаров. Пожалуйста, отправьте скриншот только с одним товаром.")
+                has_5_stars = False
+            elif stars_count == 5:
                 message_parts.append("Отзыв с 5 звездами подтвержден!")
                 has_5_stars = True
             elif stars_count > 0:
@@ -152,14 +172,14 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             else:
                 message_parts.append("Не удалось обнаружить звезды в отзыве. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с рейтингом.")
                 has_5_stars = False
-            
-            if product_image:
+
+            if product_image and not is_returned and not has_multiple_products:
                 if product_match is True:
                     message_parts.append("Товар в отзыве соответствует запрошенному.")
                 elif product_match is False:
                     message_parts.append("Товар в отзыве не соответствует запрошенному. Пожалуйста, отправьте скриншот отзыва правильного товара.")
                     has_5_stars = False
-            
+
             message = " ".join(message_parts)
             
             return {
@@ -169,7 +189,9 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                 'confidence': confidence,
                 'stars_count': stars_count,
                 'review_date': review_date,
-                'product_match': product_match
+                'product_match': product_match,
+                'is_returned': is_returned,
+                'has_multiple_products': has_multiple_products
             }
             
         except Exception as e:
@@ -183,7 +205,9 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                 'confidence': 0,
                 'stars_count': 0,
                 'review_date': None,
-                'product_match': None
+                'product_match': None,
+                'is_returned': False,
+                'has_multiple_products': False
             }
             
     except Exception as e:
@@ -195,5 +219,7 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             'confidence': 0,
             'stars_count': 0,
             'review_date': None,
-            'product_match': None
+            'product_match': None,
+            'is_returned': False,
+            'has_multiple_products': False
         } 

@@ -88,6 +88,10 @@ class goods(models.Model):
         verbose_name='Срок расширенной гарантии (в годах)',
         default=1.0
     )
+    is_returned = models.BooleanField(
+        default=False,
+        verbose_name='Товар возвращен'
+    )
 
     def __str__(self):
         return str(self.name)

@@ -658,6 +658,22 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
         product = goods.objects.get(id=product_id)
         user = User.objects.get(telegram_id=chat_id)
         
+        # Проверяем, не возвращен ли товар
+        if product.is_returned:
+            error_text = "Товар возвращен или отменен. Расширенная гарантия недоступна."
+            if message_id:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=error_text
+                )
+            else:
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=error_text
+                )
+            return
+        
         warranty_data = user.warranty_data or {}
         if isinstance(warranty_data, str):
             warranty_data = json.loads(warranty_data)
@@ -707,7 +723,8 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
             'activation_date': start_date_str,
             'end_date': end_date_str,
             'warranty_period': warranty_text,
-            'review_date': review_date
+            'review_date': review_date,
+            'status': 'Активна'
         }
         warranty_data[str(product_id)]['info'] = warranty_info
         
@@ -765,7 +782,7 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
         
         bot.send_message(
             chat_id=chat_id,
-            text="Используйте кнопку ниже, чтобы вернуться к информации о товаре:",
+            text="Используйте кнопку ниже, чтобы вернуться к информации о товару:",
             reply_markup=markup
         )
         
@@ -890,6 +907,16 @@ def show_my_warranties(call: CallbackQuery) -> None:
                     else:
                         # Если информация о товаре не найдена, пытаемся получить её из базы данных
                         product = goods.objects.get(id=int(product_id))
+                        
+                        # Проверяем, не возвращен ли товар
+                        if product.is_returned:
+                            text += (
+                                f"❌ Возвращен\n"
+                                f"📱 {product.name}\n"
+                                f"ℹ️ Товар возвращен или отменен\n\n"
+                            )
+                            continue
+                        
                         current_date = timezone.now()
                         warranty_years = product.extended_warranty
                         end_date = current_date + timezone.timedelta(days=int(warranty_years * 365))
@@ -905,7 +932,8 @@ def show_my_warranties(call: CallbackQuery) -> None:
                             'name': product.name,
                             'activation_date': current_date.strftime("%d.%m.%Y"),
                             'end_date': end_date.strftime("%d.%m.%Y"),
-                            'warranty_period': warranty_text
+                            'warranty_period': warranty_text,
+                            'status': 'Активна'
                         }
                         
                         text += (
