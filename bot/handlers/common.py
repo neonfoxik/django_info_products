@@ -187,10 +187,29 @@ def show_category_products(call: CallbackQuery) -> None:
             reply_markup=error_markup
         )
 
+def delete_previous_messages(chat_id: int, user: User) -> None:
+    """Удаляет предыдущие сообщения пользователя"""
+    if user.messages_count > 0:
+        for i in range(user.messages_count - 1):
+            try:
+                bot.delete_message(chat_id=chat_id, message_id=int(user.last_message_id) - i - 1)
+            except Exception as e:
+                print(f"[ERROR] Ошибка при удалении сообщения: {e}")
+        user.messages_count = 0
+        user.last_message_id = None
+        user.save()
+
 def show_product_menu(call: CallbackQuery) -> None:
     """Показать меню конкретного товара"""
     try:
         product_id = int(call.data.split('_')[1])
+        
+        try:
+            user = User.objects.get(telegram_id=call.message.chat.id)
+            # Удаляем предыдущие сообщения
+            delete_previous_messages(call.message.chat.id, user)
+        except User.DoesNotExist:
+            pass
         
         try:
             product = goods.objects.get(id=product_id)
@@ -225,32 +244,91 @@ def show_product_menu(call: CallbackQuery) -> None:
             reply_markup=error_markup
         )
 
-def send_long_message(chat_id: int, text: str, message_id: int = None) -> None:
+def send_long_message(chat_id: int, text: str, message_id: int = None, markup=None) -> None:
     """Отправка длинного текста с разбивкой на сообщения"""
     # Максимальная длина одного сообщения
     MAX_LENGTH = 4096
     
-    if len(text) <= MAX_LENGTH:
-        if message_id:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text
-            )
-        else:
-            bot.send_message(chat_id=chat_id, text=text)
-    else:
-        # Разбиваем текст на части
-        parts = [text[i:i + MAX_LENGTH] for i in range(0, len(text), MAX_LENGTH)]
-        for i, part in enumerate(parts):
-            if i == 0 and message_id:
+    try:
+        user = User.objects.get(telegram_id=chat_id)
+        
+        if len(text) <= MAX_LENGTH:
+            if message_id:
                 bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
-                    text=part
+                    text=text,
+                    reply_markup=markup
+                )
+                user.last_message_id = str(message_id)
+            else:
+                msg = bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=markup
+                )
+                user.last_message_id = str(msg.message_id)
+            user.messages_count = 1
+        else:
+            # Разбиваем текст на части
+            parts = [text[i:i + MAX_LENGTH] for i in range(0, len(text), MAX_LENGTH)]
+            for i, part in enumerate(parts):
+                if i == 0 and message_id:
+                    msg = bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=part
+                    )
+                    user.last_message_id = str(message_id)
+                else:
+                    msg = bot.send_message(
+                        chat_id=chat_id,
+                        text=part,
+                        reply_markup=markup if i == len(parts) - 1 else None
+                    )
+                    if i == len(parts) - 1:
+                        user.last_message_id = str(msg.message_id)
+            user.messages_count = len(parts)
+        
+        user.save()
+        
+    except User.DoesNotExist:
+        # Если пользователь не найден, просто отправляем сообщение
+        if len(text) <= MAX_LENGTH:
+            if message_id:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                    reply_markup=markup
                 )
             else:
-                bot.send_message(chat_id=chat_id, text=part)
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_markup=markup
+                )
+        else:
+            parts = [text[i:i + MAX_LENGTH] for i in range(0, len(text), MAX_LENGTH)]
+            for i, part in enumerate(parts):
+                if i == 0 and message_id:
+                    bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=part
+                    )
+                else:
+                    bot.send_message(
+                        chat_id=chat_id,
+                        text=part,
+                        reply_markup=markup if i == len(parts) - 1 else None
+                    )
+
+def reset_user_messages(user: User) -> None:
+    """Сбрасывает счетчик сообщений пользователя"""
+    user.messages_count = 0
+    user.last_message_id = None
+    user.save()
 
 def show_product_info(call: CallbackQuery) -> None:
     """Показывает информацию о товаре (инструкция/FAQ/гарантия)"""
@@ -342,23 +420,8 @@ def show_product_info(call: CallbackQuery) -> None:
             return
         
         # Отправляем текст с учетом возможной длины
-        send_long_message(call.message.chat.id, text, call.message.message_id)
+        send_long_message(call.message.chat.id, text, call.message.message_id, markup)
         
-        # Отправляем кнопку "Назад" отдельным сообщением, если текст был разбит
-        if len(text) > 4096:
-            bot.send_message(
-                chat_id=call.message.chat.id,
-                text="Используйте кнопку ниже для навигации:",
-                reply_markup=markup
-            )
-        else:
-            # Если текст короткий, добавляем кнопку к сообщению
-            bot.edit_message_reply_markup(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=markup
-            )
-    
     except Exception as e:
         # В случае ошибки показываем сообщение об ошибке
         print(f"[ERROR] Ошибка при показе информации о товаре: {e}")
@@ -661,17 +724,7 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
         # Проверяем, не возвращен ли товар
         if product.is_returned:
             error_text = "Товар возвращен или отменен. Расширенная гарантия недоступна."
-            if message_id:
-                bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=error_text
-                )
-            else:
-                bot.send_message(
-                    chat_id=chat_id,
-                    text=error_text
-                )
+            send_long_message(chat_id, error_text, message_id)
             return
         
         warranty_data = user.warranty_data or {}
@@ -762,29 +815,13 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
             f"📆 Дата окончания: {end_date_str}"
         )
         
-        # Отправляем сообщение об успешной активации
-        if message_id:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=success_text
-            )
-        else:
-            bot.send_message(
-                chat_id=chat_id,
-                text=success_text
-            )
-        
-        # Добавляем кнопку возврата
+        # Создаем клавиатуру с кнопкой возврата
         markup = InlineKeyboardMarkup()
         back_btn = InlineKeyboardButton("⬅️ Вернуться к товару", callback_data=f"product_{product_id}")
         markup.add(back_btn)
         
-        bot.send_message(
-            chat_id=chat_id,
-            text="Используйте кнопку ниже, чтобы вернуться к информации о товару:",
-            reply_markup=markup
-        )
+        # Отправляем сообщение об успешной активации
+        send_long_message(chat_id, success_text, message_id, markup)
         
         # Удаляем состояние активации гарантии
         if chat_id in warranty_activation_state:
@@ -955,20 +992,8 @@ def show_my_warranties(call: CallbackQuery) -> None:
         
         markup = back_to_main_markup
         
-        try:
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=text,
-                reply_markup=markup
-            )
-        except Exception as e:
-            # Если не удалось отредактировать сообщение, отправляем новое
-            bot.send_message(
-                chat_id=call.message.chat.id,
-                text=text,
-                reply_markup=markup
-            )
+        # Отправляем текст с учетом возможной длины
+        send_long_message(call.message.chat.id, text, call.message.message_id, markup)
             
     except User.DoesNotExist:
         # Если пользователь не найден, отправляем сообщение об ошибке
@@ -1085,19 +1110,28 @@ def back_to_main(call: CallbackQuery) -> None:
         user = User.objects.get(telegram_id=call.message.chat.id)
         user.is_ai = False
         user.chat_history = {}
-        user.save()
+        
+        # Удаляем предыдущие сообщения
+        delete_previous_messages(call.message.chat.id, user)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=MAIN_TEXT,
+            reply_markup=main_markup
+        )
     except User.DoesNotExist:
         pass
-    
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=MAIN_TEXT,
-        reply_markup=main_markup
-    )
 
 def back_to_categories(call: CallbackQuery) -> None:
     """Обработчик для возврата к списку категорий"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        # Удаляем предыдущие сообщения
+        delete_previous_messages(call.message.chat.id, user)
+    except User.DoesNotExist:
+        pass
+    
     show_categories(call.message.chat.id, call.message.message_id)
 
 def support_menu(call: CallbackQuery) -> None:

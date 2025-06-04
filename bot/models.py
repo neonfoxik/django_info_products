@@ -39,6 +39,16 @@ class User(models.Model):
         default=timezone.now,
         verbose_name='Дата последней отправки скриншота'
     )
+    messages_count = models.IntegerField(
+        default=0,
+        verbose_name='Количество сообщений в текущем действии'
+    )
+    last_message_id = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        verbose_name='ID последнего сообщения'
+    )
     def __str__(self):
         return str(self.user_name)
 
