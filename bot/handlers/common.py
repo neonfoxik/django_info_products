@@ -8,7 +8,7 @@ from bot.texts import EXTENDED_WARRANTY_ACTIVATED, SCREENSHOT_PROCESSING, SCREEN
 from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup
 from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup
 from .registration import start_registration
-from bot.models import goods, goods_category, User
+from bot.models import goods, goods_category, User, AdminContact
 from bot.apis import analyze_screenshot
 import json
 import os
@@ -220,13 +220,33 @@ def show_product_menu(call: CallbackQuery) -> None:
             return
         
         markup = get_product_menu_markup(product_id)
-    
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=f"Информация о товаре: {product.name}",
-            reply_markup=markup
-        )
+        
+        # Проверяем, является ли текущее сообщение сообщением с PDF
+        if call.message.content_type != 'text':
+            try:
+                # Удаляем старое сообщение
+                bot.delete_message(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id
+                )
+            except Exception as e:
+                print(f"[ERROR] Ошибка при удалении сообщения: {e}")
+                logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
+            
+            # Отправляем новое сообщение с меню
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text=f"Информация о товаре: {product.name}",
+                reply_markup=markup
+            )
+        else:
+            # Если это обычное текстовое сообщение, редактируем его
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"Информация о товаре: {product.name}",
+                reply_markup=markup
+            )
     
     except Exception as e:
         # В случае ошибки показываем сообщение об ошибке
@@ -237,12 +257,32 @@ def show_product_menu(call: CallbackQuery) -> None:
         back_btn = InlineKeyboardButton("⬅️ Назад к категориям", callback_data="back_to_categories")
         error_markup.add(back_btn)
         
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Произошла ошибка при загрузке информации о товаре. Пожалуйста, попробуйте позже.",
-            reply_markup=error_markup
-        )
+        # Проверяем тип сообщения
+        if call.message.content_type != 'text':
+            try:
+                # Удаляем старое сообщение
+                bot.delete_message(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id
+                )
+            except Exception as e:
+                print(f"[ERROR] Ошибка при удалении сообщения: {e}")
+                logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
+            
+            # Отправляем новое сообщение с ошибкой
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text="Произошла ошибка при загрузке информации о товаре. Пожалуйста, попробуйте позже.",
+                reply_markup=error_markup
+            )
+        else:
+            # Если это обычное текстовое сообщение, редактируем его
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="Произошла ошибка при загрузке информации о товаре. Пожалуйста, попробуйте позже.",
+                reply_markup=error_markup
+            )
 
 def send_long_message(chat_id: int, text: str, message_id: int = None, markup=None) -> None:
     """Отправка длинного текста с разбивкой на сообщения"""
@@ -344,56 +384,149 @@ def show_product_info(call: CallbackQuery) -> None:
             show_categories(call.message.chat.id, call.message.message_id)
             return
         
-        markup = InlineKeyboardMarkup()
-        back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}")
-        markup.add(back_btn)
+        # Получаем информацию о расширенной гарантии
+        try:
+            user = User.objects.get(telegram_id=call.message.chat.id)
+            warranty_data = user.warranty_data or {}
+            
+            if isinstance(warranty_data, str):
+                warranty_data = json.loads(warranty_data)
+            
+            # Проверяем, есть ли расширенная гарантия на данный товар
+            product_data = warranty_data.get(str(product_id), {})
+            has_warranty = product_data.get('is_active', False)
+        except User.DoesNotExist:
+            has_warranty = False
+        
+        # Создаем клавиатуру с учетом наличия расширенной гарантии
+        markup = get_warranty_markup_with_extended(product_id, has_warranty)
+        
+        # Удаляем предыдущее сообщение
+        try:
+            bot.delete_message(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id
+            )
+        except Exception as e:
+            print(f"[ERROR] Ошибка при удалении сообщения: {e}")
+            logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
         
         if info_type == "instructions":
-            text = f"📖 Инструкция по применению {product.name}:\n\n{product.instructions}"
-        elif info_type == "faq":
-            text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{product.FAQ}"
-        elif info_type == "warranty":
-            # Получаем информацию о расширенной гарантии
-            try:
-                user = User.objects.get(telegram_id=call.message.chat.id)
-                warranty_data = user.warranty_data or {}
-                
-                if isinstance(warranty_data, str):
-                    warranty_data = json.loads(warranty_data)
-                
-                # Проверяем, есть ли расширенная гарантия на данный товар
-                product_data = warranty_data.get(str(product_id), {})
-                has_warranty = product_data.get('is_active', False)
-                
-                # Форматируем срок гарантии для условий
-                warranty_years = product.extended_warranty
-                if warranty_years < 1:
-                    months = int(warranty_years * 12)
-                    warranty_period = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
-                else:
-                    years = int(warranty_years) if warranty_years.is_integer() else warranty_years
-                    if years == 1:
-                        warranty_period = "1 год"
-                    elif years in [2, 3, 4]:
-                        warranty_period = f"{years} года"
-                    else:
-                        warranty_period = f"{years} лет"
-                
-                if has_warranty:
-                    # Если у пользователя уже есть расширенная гарантия
-                    product_info = product_data.get('info', {})
-                    
-                    text = (
-                        f"🛡️ Информация о расширенной гарантии на {product.name}:\n"
-                        f"📅 Дата активации: {product_info.get('activation_date', 'Не указана')}\n"
-                        f"⏳ Срок гарантии: {product_info.get('warranty_period', warranty_period)}\n"
-                        f"📆 Дата окончания: {product_info.get('end_date', 'Не указана')}"
+            # Получаем документ с инструкцией
+            doc = product.documents.filter(document_type='instructions').first()
+            if doc and doc.pdf_file:
+                # Если есть PDF файл, отправляем его
+                with open(doc.pdf_file.path, 'rb') as pdf:
+                    bot.send_document(
+                        chat_id=call.message.chat.id,
+                        document=pdf,
+                        caption=f"📖 Инструкция по применению {product.name}",
+                        reply_markup=markup
                     )
+            elif doc and doc.text_content:
+                # Если есть текстовое содержимое, отправляем его
+                text = f"📖 Инструкция по применению {product.name}:\n\n{doc.text_content}"
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text=text,
+                    reply_markup=markup
+                )
+            else:
+                text = f"📖 Инструкция по применению {product.name} отсутствует."
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text=text,
+                    reply_markup=markup
+                )
+                
+        elif info_type == "faq":
+            # Получаем документ с FAQ
+            doc = product.documents.filter(document_type='faq').first()
+            if doc and doc.pdf_file:
+                # Если есть PDF файл, отправляем его
+                with open(doc.pdf_file.path, 'rb') as pdf:
+                    bot.send_document(
+                        chat_id=call.message.chat.id,
+                        document=pdf,
+                        caption=f"❓ Часто задаваемые вопросы о {product.name}",
+                        reply_markup=markup
+                    )
+            elif doc and doc.text_content:
+                # Если есть текстовое содержимое, отправляем его
+                text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text=text,
+                    reply_markup=markup
+                )
+            else:
+                text = f"❓ Часто задаваемые вопросы о {product.name} отсутствуют."
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text=text,
+                    reply_markup=markup
+                )
+                
+        elif info_type == "warranty":
+            # Получаем документ с гарантией
+            doc = product.documents.filter(document_type='warranty').first()
+            
+            # Форматируем срок гарантии для условий
+            warranty_years = product.extended_warranty
+            if warranty_years < 1:
+                months = int(warranty_years * 12)
+                warranty_period = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
+            else:
+                years = int(warranty_years) if warranty_years.is_integer() else warranty_years
+                if years == 1:
+                    warranty_period = "1 год"
+                elif years in [2, 3, 4]:
+                    warranty_period = f"{years} года"
                 else:
-                    # Если расширенной гарантии нет, показываем информацию о том, как её получить
+                    warranty_period = f"{years} лет"
+            
+            if has_warranty:
+                # Если у пользователя уже есть расширенная гарантия
+                product_info = product_data.get('info', {})
+                
+                text = (
+                    f"🛡️ Информация о расширенной гарантии на {product.name}:\n"
+                    f"📅 Дата активации: {product_info.get('activation_date', 'Не указана')}\n"
+                    f"⏳ Срок гарантии: {product_info.get('warranty_period', warranty_period)}\n"
+                    f"📆 Дата окончания: {product_info.get('end_date', 'Не указана')}"
+                )
+                
+                if doc and doc.pdf_file:
+                    # Если есть PDF файл, отправляем его
+                    with open(doc.pdf_file.path, 'rb') as pdf:
+                        bot.send_document(
+                            chat_id=call.message.chat.id,
+                            document=pdf,
+                            caption=text,
+                            reply_markup=markup
+                        )
+                else:
+                    bot.send_message(
+                        chat_id=call.message.chat.id,
+                        text=text,
+                        reply_markup=markup
+                    )
+            else:
+                # Если расширенной гарантии нет, показываем информацию о том, как её получить
+                if doc and doc.pdf_file:
+                    # Если есть PDF файл, отправляем его
+                    with open(doc.pdf_file.path, 'rb') as pdf:
+                        bot.send_document(
+                            chat_id=call.message.chat.id,
+                            document=pdf,
+                            caption=f"🛡️ Условия гарантии на {product.name}",
+                            reply_markup=markup
+                        )
+                elif doc and doc.text_content:
+                    # Если есть текстовое содержимое, отправляем его
                     text = (
                         f"🛡️ Условия гарантии на {product.name}:\n\n"
-                        f"{product.warranty}\n\n"
+                        f"{doc.text_content}\n\n"
                         f"✨ Как получить расширенную гарантию?\n\n"
                         f"1️⃣ Оставьте отзыв с 5 звездами о товаре\n"
                         f"2️⃣ Сделайте скриншот отзыва\n"
@@ -402,26 +535,40 @@ def show_product_info(call: CallbackQuery) -> None:
                         f"🛡️ Условия расширенной гарантии:\n"
                         f"{warranty_period}"
                     )
+                    bot.send_message(
+                        chat_id=call.message.chat.id,
+                        text=text,
+                        reply_markup=markup
+                    )
+                else:
+                    text = (
+                        f"🛡️ Условия гарантии на {product.name} отсутствуют.\n\n"
+                        f"✨ Как получить расширенную гарантию?\n\n"
+                        f"1️⃣ Оставьте отзыв с 5 звездами о товаре\n"
+                        f"2️⃣ Сделайте скриншот отзыва\n"
+                        f"3️⃣ Отправьте скриншот боту\n\n"
+                        f"После проверки отзыва, вы получите расширенную гарантию сроком на {warranty_period}!"
+                    )
+                    bot.send_message(
+                        chat_id=call.message.chat.id,
+                        text=text,
+                        reply_markup=markup
+                    )
                 
-                # Создаем клавиатуру с кнопкой активации расширенной гарантии, если её нет
-                markup = get_warranty_markup_with_extended(product_id, has_warranty)
-                
-            except Exception as e:
-                # В случае ошибки, показываем только стандартную гарантию
-                print(f"Ошибка при отображении информации о расширенной гарантии: {e}")
-                text = f"🛡️ Условия гарантии на {product.name}:\n\n{product.warranty}"
         elif info_type == "support":
             text = SUPPORT_TEXT
             user = User.objects.get(telegram_id=call.message.chat.id)
             user.is_ai = True
             user.chat_history = {}  # Сбрасываем историю чата
             user.save()
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text=text,
+                reply_markup=markup
+            )
         else:
             return
-        
-        # Отправляем текст с учетом возможной длины
-        send_long_message(call.message.chat.id, text, call.message.message_id, markup)
-        
+    
     except Exception as e:
         # В случае ошибки показываем сообщение об ошибке
         print(f"[ERROR] Ошибка при показе информации о товаре: {e}")
@@ -431,9 +578,8 @@ def show_product_info(call: CallbackQuery) -> None:
         back_btn = InlineKeyboardButton("⬅️ Назад к категориям", callback_data="back_to_categories")
         error_markup.add(back_btn)
         
-        bot.edit_message_text(
+        bot.send_message(
             chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
             text="Произошла ошибка при загрузке информации. Пожалуйста, попробуйте позже.",
             reply_markup=error_markup
         )
@@ -899,6 +1045,63 @@ def cancel_review(call: CallbackQuery) -> None:
             text="Произошла ошибка. Пожалуйста, попробуйте снова."
         )
 
+def show_warranty_case(call: CallbackQuery) -> None:
+    """Показывает информацию о гарантийном случае и предлагает оставить сообщение для администратора"""
+    try:
+        # Получаем активный контакт администратора
+        admin_contact = AdminContact.objects.filter(is_active=True).first()
+        if not admin_contact:
+            admin_contact_text = "Для связи с администратором напишите на email: admin@example.com"
+        else:
+            admin_contact_text = admin_contact.admin_contact
+        
+        text = (
+            "🛠️ Гарантийный случай\n\n"
+            "Если у вас возникла проблема с товаром, которая подпадает под гарантийный случай, "
+            "пожалуйста, свяжитесь с нашим администратором:\n\n"
+            f"{admin_contact_text}\n\n"
+            "При обращении укажите:\n"
+            "1️⃣ Название товара\n"
+            "2️⃣ Описание проблемы\n"
+            "3️⃣ Фотографии неисправности (если есть)\n"
+            "4️⃣ Номер вашего заказа (если есть)\n\n"
+            "После отправки сообщения администратор свяжется с вами в течение нескольких дней для уточнения подробностей."
+        )
+        
+        markup = InlineKeyboardMarkup()
+        back_btn = InlineKeyboardButton("⬅️ Назад к гарантиям", callback_data="my_warranties")
+        markup.add(back_btn)
+        
+        # Удаляем предыдущее сообщение
+        try:
+            bot.delete_message(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id
+            )
+        except Exception as e:
+            print(f"[ERROR] Ошибка при удалении сообщения: {e}")
+            logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
+        
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text=text,
+            reply_markup=markup
+        )
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе информации о гарантийном случае: {e}")
+        logger.error(f"[ERROR] Ошибка при показе информации о гарантийном случае: {e}")
+        
+        error_markup = InlineKeyboardMarkup()
+        back_btn = InlineKeyboardButton("⬅️ Назад к гарантиям", callback_data="my_warranties")
+        error_markup.add(back_btn)
+        
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text="Произошла ошибка при загрузке информации. Пожалуйста, попробуйте позже.",
+            reply_markup=error_markup
+        )
+
 def show_my_warranties(call: CallbackQuery) -> None:
     """Показывает список товаров с активированной расширенной гарантией"""
     try:
@@ -990,10 +1193,28 @@ def show_my_warranties(call: CallbackQuery) -> None:
             user.warranty_data = warranty_data
             user.save()
         
-        markup = back_to_main_markup
+        markup = InlineKeyboardMarkup()
+        warranty_case_btn = InlineKeyboardButton("🛠️ Гарантийный случай", callback_data="warranty_case")
+        back_btn = InlineKeyboardButton("⬅️ Главное меню", callback_data="back_to_main")
+        markup.add(warranty_case_btn)
+        markup.add(back_btn)
+        
+        # Удаляем предыдущее сообщение
+        try:
+            bot.delete_message(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id
+            )
+        except Exception as e:
+            print(f"[ERROR] Ошибка при удалении сообщения: {e}")
+            logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
         
         # Отправляем текст с учетом возможной длины
-        send_long_message(call.message.chat.id, text, call.message.message_id, markup)
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text=text,
+            reply_markup=markup
+        )
             
     except User.DoesNotExist:
         # Если пользователь не найден, отправляем сообщение об ошибке

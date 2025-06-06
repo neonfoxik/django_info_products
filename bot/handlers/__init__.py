@@ -17,7 +17,17 @@ from .common import (
     confirm_review,
     cancel_review,
     send_excel_to_admin,
-    admin_command
+    admin_command,
+    show_warranty_case
 )
 
 from .registration import start_registration
+
+from telebot.types import CallbackQuery
+
+def handle_callback(call: CallbackQuery) -> None:
+    """Обработчик callback-запросов"""
+    if call.data == "warranty_case":
+        show_warranty_case(call)
+        return
+    # ... остальные обработчики ...
