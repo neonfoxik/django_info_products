@@ -40,7 +40,7 @@ def start(message: Message) -> None:
     start_registration(message)
 
 def menu_call(call: CallbackQuery) -> None:
-    # Отключаем режим ИИ при нажатии кнопки назад
+    """Обработчик для возврата в главное меню"""
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
         user.is_ai = False
@@ -48,7 +48,13 @@ def menu_call(call: CallbackQuery) -> None:
         user.save()
     except User.DoesNotExist:
         pass
-    show_categories(call.message.chat.id, call.message.message_id)
+
+    # Отправляем новое сообщение с главным меню
+    bot.send_message(
+        chat_id=call.message.chat.id,
+        text=MAIN_TEXT,
+        reply_markup=main_markup
+    )
 
 def menu_m(message: Message) -> None:
     """Обработчик для отправки главного меню по текстовой команде"""
@@ -86,10 +92,14 @@ def show_categories(chat_id: int, message_id: int = None) -> None:
                     callback_data=f"category_{category.id}"
                 )
                 markup.add(btn)
+            
+            # Добавляем кнопку возврата в главное меню
+            back_btn = InlineKeyboardButton("⬅️ Главное меню", callback_data="menu")
+            markup.add(back_btn)
         
         text = "Выберите категорию товаров:"
         
-        # Отправляем сообщение
+        # Редактируем существующее сообщение
         if message_id:
             bot.edit_message_text(
                 chat_id=chat_id,
@@ -414,23 +424,34 @@ def show_product_info(call: CallbackQuery) -> None:
         if info_type == "instructions":
             # Получаем документ с инструкцией
             doc = product.documents.filter(document_type='instructions').first()
-            if doc and doc.pdf_file:
-                # Если есть PDF файл, отправляем его
-                with open(doc.pdf_file.path, 'rb') as pdf:
-                    bot.send_document(
+            if doc:
+                if doc.pdf_file and doc.text_content:
+                    # Если есть и PDF файл, и текст, отправляем их одним сообщением
+                    text = f"📖 Инструкция по применению {product.name}:\n\n{doc.text_content}"
+                    with open(doc.pdf_file.path, 'rb') as pdf:
+                        bot.send_document(
+                            chat_id=call.message.chat.id,
+                            document=pdf,
+                            caption=text,
+                            reply_markup=markup
+                        )
+                elif doc.pdf_file:
+                    # Если есть только PDF файл
+                    with open(doc.pdf_file.path, 'rb') as pdf:
+                        bot.send_document(
+                            chat_id=call.message.chat.id,
+                            document=pdf,
+                            caption=f"📖 Инструкция по применению {product.name}",
+                            reply_markup=markup
+                        )
+                elif doc.text_content:
+                    # Если есть только текст
+                    text = f"📖 Инструкция по применению {product.name}:\n\n{doc.text_content}"
+                    bot.send_message(
                         chat_id=call.message.chat.id,
-                        document=pdf,
-                        caption=f"📖 Инструкция по применению {product.name}",
+                        text=text,
                         reply_markup=markup
                     )
-            elif doc and doc.text_content:
-                # Если есть текстовое содержимое, отправляем его
-                text = f"📖 Инструкция по применению {product.name}:\n\n{doc.text_content}"
-                bot.send_message(
-                    chat_id=call.message.chat.id,
-                    text=text,
-                    reply_markup=markup
-                )
             else:
                 text = f"📖 Инструкция по применению {product.name} отсутствует."
                 bot.send_message(
@@ -442,23 +463,34 @@ def show_product_info(call: CallbackQuery) -> None:
         elif info_type == "faq":
             # Получаем документ с FAQ
             doc = product.documents.filter(document_type='faq').first()
-            if doc and doc.pdf_file:
-                # Если есть PDF файл, отправляем его
-                with open(doc.pdf_file.path, 'rb') as pdf:
-                    bot.send_document(
+            if doc:
+                if doc.pdf_file and doc.text_content:
+                    # Если есть и PDF файл, и текст, отправляем их одним сообщением
+                    text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
+                    with open(doc.pdf_file.path, 'rb') as pdf:
+                        bot.send_document(
+                            chat_id=call.message.chat.id,
+                            document=pdf,
+                            caption=text,
+                            reply_markup=markup
+                        )
+                elif doc.pdf_file:
+                    # Если есть только PDF файл
+                    with open(doc.pdf_file.path, 'rb') as pdf:
+                        bot.send_document(
+                            chat_id=call.message.chat.id,
+                            document=pdf,
+                            caption=f"❓ Часто задаваемые вопросы о {product.name}",
+                            reply_markup=markup
+                        )
+                elif doc.text_content:
+                    # Если есть только текст
+                    text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
+                    bot.send_message(
                         chat_id=call.message.chat.id,
-                        document=pdf,
-                        caption=f"❓ Часто задаваемые вопросы о {product.name}",
+                        text=text,
                         reply_markup=markup
                     )
-            elif doc and doc.text_content:
-                # Если есть текстовое содержимое, отправляем его
-                text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
-                bot.send_message(
-                    chat_id=call.message.chat.id,
-                    text=text,
-                    reply_markup=markup
-                )
             else:
                 text = f"❓ Часто задаваемые вопросы о {product.name} отсутствуют."
                 bot.send_message(
@@ -496,13 +528,31 @@ def show_product_info(call: CallbackQuery) -> None:
                     f"📆 Дата окончания: {product_info.get('end_date', 'Не указана')}"
                 )
                 
-                if doc and doc.pdf_file:
-                    # Если есть PDF файл, отправляем его
-                    with open(doc.pdf_file.path, 'rb') as pdf:
-                        bot.send_document(
+                if doc:
+                    if doc.pdf_file and doc.text_content:
+                        # Если есть и PDF файл, и текст, отправляем их одним сообщением
+                        full_text = f"{text}\n\n{doc.text_content}"
+                        with open(doc.pdf_file.path, 'rb') as pdf:
+                            bot.send_document(
+                                chat_id=call.message.chat.id,
+                                document=pdf,
+                                caption=full_text,
+                                reply_markup=markup
+                            )
+                    elif doc.pdf_file:
+                        # Если есть только PDF файл
+                        with open(doc.pdf_file.path, 'rb') as pdf:
+                            bot.send_document(
+                                chat_id=call.message.chat.id,
+                                document=pdf,
+                                caption=text,
+                                reply_markup=markup
+                            )
+                    elif doc.text_content:
+                        # Если есть только текст
+                        bot.send_message(
                             chat_id=call.message.chat.id,
-                            document=pdf,
-                            caption=text,
+                            text=f"{text}\n\n{doc.text_content}",
                             reply_markup=markup
                         )
                 else:
@@ -513,33 +563,54 @@ def show_product_info(call: CallbackQuery) -> None:
                     )
             else:
                 # Если расширенной гарантии нет, показываем информацию о том, как её получить
-                if doc and doc.pdf_file:
-                    # Если есть PDF файл, отправляем его
-                    with open(doc.pdf_file.path, 'rb') as pdf:
-                        bot.send_document(
+                if doc:
+                    if doc.pdf_file and doc.text_content:
+                        # Если есть и PDF файл, и текст, отправляем их одним сообщением
+                        text = (
+                            f"🛡️ Условия гарантии на {product.name}:\n\n"
+                            f"{doc.text_content}\n\n"
+                            f"✨ Как получить расширенную гарантию?\n\n"
+                            f"1️⃣ Оставьте отзыв с 5 звездами о товаре\n"
+                            f"2️⃣ Сделайте скриншот отзыва\n"
+                            f"3️⃣ Отправьте скриншот боту\n\n"
+                            f"После проверки отзыва, вы получите расширенную гарантию сроком на {warranty_period}!\n\n"
+                            f"🛡️ Условия расширенной гарантии:\n"
+                            f"{warranty_period}"
+                        )
+                        with open(doc.pdf_file.path, 'rb') as pdf:
+                            bot.send_document(
+                                chat_id=call.message.chat.id,
+                                document=pdf,
+                                caption=text,
+                                reply_markup=markup
+                            )
+                    elif doc.pdf_file:
+                        # Если есть только PDF файл
+                        with open(doc.pdf_file.path, 'rb') as pdf:
+                            bot.send_document(
+                                chat_id=call.message.chat.id,
+                                document=pdf,
+                                caption=f"🛡️ Условия гарантии на {product.name}",
+                                reply_markup=markup
+                            )
+                    elif doc.text_content:
+                        # Если есть только текст
+                        text = (
+                            f"🛡️ Условия гарантии на {product.name}:\n\n"
+                            f"{doc.text_content}\n\n"
+                            f"✨ Как получить расширенную гарантию?\n\n"
+                            f"1️⃣ Оставьте отзыв с 5 звездами о товаре\n"
+                            f"2️⃣ Сделайте скриншот отзыва\n"
+                            f"3️⃣ Отправьте скриншот боту\n\n"
+                            f"После проверки отзыва, вы получите расширенную гарантию сроком на {warranty_period}!\n\n"
+                            f"🛡️ Условия расширенной гарантии:\n"
+                            f"{warranty_period}"
+                        )
+                        bot.send_message(
                             chat_id=call.message.chat.id,
-                            document=pdf,
-                            caption=f"🛡️ Условия гарантии на {product.name}",
+                            text=text,
                             reply_markup=markup
                         )
-                elif doc and doc.text_content:
-                    # Если есть текстовое содержимое, отправляем его
-                    text = (
-                        f"🛡️ Условия гарантии на {product.name}:\n\n"
-                        f"{doc.text_content}\n\n"
-                        f"✨ Как получить расширенную гарантию?\n\n"
-                        f"1️⃣ Оставьте отзыв с 5 звездами о товаре\n"
-                        f"2️⃣ Сделайте скриншот отзыва\n"
-                        f"3️⃣ Отправьте скриншот боту\n\n"
-                        f"После проверки отзыва, вы получите расширенную гарантию сроком на {warranty_period}!\n\n"
-                        f"🛡️ Условия расширенной гарантии:\n"
-                        f"{warranty_period}"
-                    )
-                    bot.send_message(
-                        chat_id=call.message.chat.id,
-                        text=text,
-                        reply_markup=markup
-                    )
                 else:
                     text = (
                         f"🛡️ Условия гарантии на {product.name} отсутствуют.\n\n"
@@ -570,7 +641,6 @@ def show_product_info(call: CallbackQuery) -> None:
             return
     
     except Exception as e:
-        # В случае ошибки показываем сообщение об ошибке
         print(f"[ERROR] Ошибка при показе информации о товаре: {e}")
         logger.error(f"[ERROR] Ошибка при показе информации о товаре: {e}")
         
@@ -1045,8 +1115,7 @@ def cancel_review(call: CallbackQuery) -> None:
             text="Произошла ошибка. Пожалуйста, попробуйте снова."
         )
 
-def show_warranty_case(call: CallbackQuery) -> None:
-    """Показывает информацию о гарантийном случае и предлагает оставить сообщение для администратора"""
+def show_warranty_handler(call: CallbackQuery) -> None:
     try:
         # Получаем активный контакт администратора
         admin_contact = AdminContact.objects.filter(is_active=True).first()
@@ -1054,24 +1123,18 @@ def show_warranty_case(call: CallbackQuery) -> None:
             admin_contact_text = "Для связи с администратором напишите на email: admin@example.com"
         else:
             admin_contact_text = admin_contact.admin_contact
-        
+            
         text = (
             "🛠️ Гарантийный случай\n\n"
             "Если у вас возникла проблема с товаром, которая подпадает под гарантийный случай, "
-            "пожалуйста, свяжитесь с нашим администратором:\n\n"
-            f"{admin_contact_text}\n\n"
-            "При обращении укажите:\n"
-            "1️⃣ Название товара\n"
-            "2️⃣ Описание проблемы\n"
-            "3️⃣ Фотографии неисправности (если есть)\n"
-            "4️⃣ Номер вашего заказа (если есть)\n\n"
-            "После отправки сообщения администратор свяжется с вами в течение нескольких дней для уточнения подробностей."
+            "пожалуйста, свяжитесь с администратором:\n\n"
+            f"{admin_contact_text}"
         )
-        
+            
         markup = InlineKeyboardMarkup()
         back_btn = InlineKeyboardButton("⬅️ Назад к гарантиям", callback_data="my_warranties")
         markup.add(back_btn)
-        
+            
         # Удаляем предыдущее сообщение
         try:
             bot.delete_message(
@@ -1081,25 +1144,18 @@ def show_warranty_case(call: CallbackQuery) -> None:
         except Exception as e:
             print(f"[ERROR] Ошибка при удалении сообщения: {e}")
             logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
-        
+            
+        # Отправляем новое сообщение
         bot.send_message(
             chat_id=call.message.chat.id,
             text=text,
             reply_markup=markup
         )
-        
     except Exception as e:
-        print(f"[ERROR] Ошибка при показе информации о гарантийном случае: {e}")
-        logger.error(f"[ERROR] Ошибка при показе информации о гарантийном случае: {e}")
-        
-        error_markup = InlineKeyboardMarkup()
-        back_btn = InlineKeyboardButton("⬅️ Назад к гарантиям", callback_data="my_warranties")
-        error_markup.add(back_btn)
-        
-        bot.send_message(
-            chat_id=call.message.chat.id,
-            text="Произошла ошибка при загрузке информации. Пожалуйста, попробуйте позже.",
-            reply_markup=error_markup
+        logger.error(f"[ERROR] Ошибка при показе гарантийного случая: {e}")
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
         )
 
 def show_my_warranties(call: CallbackQuery) -> None:

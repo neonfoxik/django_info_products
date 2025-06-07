@@ -170,6 +170,7 @@ class ProductDocument(models.Model):
         verbose_name = 'Документ товара'
         verbose_name_plural = 'Документы товаров'
         ordering = ['-created_at']
+        unique_together = ['product', 'document_type']
 
 class goods(models.Model):
     parent_category = models.ForeignKey(

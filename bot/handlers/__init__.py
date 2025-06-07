@@ -18,7 +18,7 @@ from .common import (
     cancel_review,
     send_excel_to_admin,
     admin_command,
-    show_warranty_case
+    show_warranty_handler
 )
 
 from .registration import start_registration
@@ -27,7 +27,8 @@ from telebot.types import CallbackQuery
 
 def handle_callback(call: CallbackQuery) -> None:
     """Обработчик callback-запросов"""
-    if call.data == "warranty_case":
-        show_warranty_case(call)
-        return
+    if call.data == "menu":
+        menu_call(call)
+    elif call.data == "warranty_case":
+        show_warranty_handler(call)
     # ... остальные обработчики ...

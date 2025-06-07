@@ -18,7 +18,8 @@ from bot.handlers import (
     show_categories, show_category_products, show_product_menu, show_product_info,
     chat_with_ai, activate_warranty, back_to_categories,
     cancel_warranty_activation, show_my_warranties, check_screenshot,
-    confirm_review, cancel_review, send_excel_to_admin, admin_command
+    confirm_review, cancel_review, send_excel_to_admin, admin_command,
+    show_warranty_handler
 )
 
 
@@ -91,6 +92,7 @@ photo_handler = bot.message_handler(content_types=['photo'])(check_screenshot)
 text_handler = bot.message_handler(func=lambda message: True)(chat_with_ai)
 
 # Обработчики для категорий и товаров
+catalog_handler = bot.callback_query_handler(lambda c: c.data == "catalog")(lambda c: show_categories(c.message.chat.id, c.message.message_id))
 category_handler = bot.callback_query_handler(lambda c: c.data.startswith("category_"))(show_category_products)
 product_handler = bot.callback_query_handler(lambda c: c.data.startswith("product_"))(show_product_menu)
 back_to_categories_handler = bot.callback_query_handler(lambda c: c.data == "back_to_categories")(back_to_categories)
@@ -98,8 +100,11 @@ back_to_categories_handler = bot.callback_query_handler(lambda c: c.data == "bac
 # Обработчики для информации о товаре
 instructions_handler = bot.callback_query_handler(lambda c: c.data.startswith("instructions_"))(show_product_info)
 faq_handler = bot.callback_query_handler(lambda c: c.data.startswith("faq_"))(show_product_info)
-warranty_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_"))(show_product_info)
+warranty_info_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_") and c.data != "warranty_case")(show_product_info)
 support_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_"))(show_product_info)
+
+# Обработчик для гарантийного случая
+warranty_case_handler = bot.callback_query_handler(func=lambda c: c.data == "warranty_case")(show_warranty_handler)
 
 # Обработчики для расширенной гарантии
 activate_warranty_handler = bot.callback_query_handler(lambda c: c.data.startswith("activate_warranty_"))(activate_warranty)

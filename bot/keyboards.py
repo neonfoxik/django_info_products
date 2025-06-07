@@ -8,7 +8,7 @@ from django.conf import settings
 
 # Главное меню
 main_markup = InlineKeyboardMarkup()
-btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="menu")
+btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog")
 btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="support_menu")
 btn3 = InlineKeyboardButton("🛡️ Мои гарантии", callback_data="my_warranties")
 main_markup.add(btn1).add(btn2).add(btn3)

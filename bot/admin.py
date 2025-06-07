@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import User, goods_category, goods, ProductImage, ProductDocument, AdminContact
+from django import forms
 
 class UserAdmin(admin.ModelAdmin):
     list_display = ('user_name', 'is_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
@@ -31,6 +32,31 @@ class ProductDocumentInline(admin.TabularInline):
     model = ProductDocument
     extra = 1
     fields = ('document_type', 'pdf_file', 'text_content')
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        
+        def clean(self):
+            cleaned_data = super(formset, self).clean()
+            if not cleaned_data:
+                return cleaned_data
+                
+            # Получаем все документы текущего товара
+            if obj:
+                existing_docs = ProductDocument.objects.filter(product=obj)
+                doc_types = existing_docs.values_list('document_type', flat=True)
+                
+                # Проверяем каждый документ в форме
+                for form in self.forms:
+                    if form.is_valid() and not form.cleaned_data.get('DELETE', False):
+                        doc_type = form.cleaned_data.get('document_type')
+                        if doc_type in doc_types:
+                            form.add_error('document_type', 'Документ этого типа уже существует для данного товара')
+                            raise forms.ValidationError('Документ этого типа уже существует для данного товара')
+            return cleaned_data
+            
+        formset.clean = clean
+        return formset
 
 class GoodsAdmin(admin.ModelAdmin):
     list_display = ('name', 'parent_category')
