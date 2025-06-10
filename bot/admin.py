@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User, goods_category, goods, ProductImage, ProductDocument, AdminContact
+from .models import User, goods_category, goods, ProductImage, ProductDocument, AdminContact, FAQ
 from django import forms
 
 class UserAdmin(admin.ModelAdmin):
@@ -22,6 +22,27 @@ class UserAdmin(admin.ModelAdmin):
 class GoodsCategoryAdmin(admin.ModelAdmin):
     list_display = ('name',)
     search_fields = ('name',)
+
+class FAQInline(admin.TabularInline):
+    model = FAQ
+    extra = 1
+    fields = ('title', 'pdf_file', 'description', 'order', 'is_active')
+    ordering = ('order', 'title')
+
+class FAQAdmin(admin.ModelAdmin):
+    list_display = ('title', 'product', 'order', 'is_active', 'created_at')
+    list_filter = ('product', 'is_active', 'created_at')
+    search_fields = ('title', 'product__name')
+    list_editable = ('order', 'is_active')
+    ordering = ('product', 'order', 'title')
+    fieldsets = (
+        (None, {
+            'fields': ('product', 'title', 'pdf_file', 'description')
+        }),
+        ('Настройки отображения', {
+            'fields': ('order', 'is_active')
+        }),
+    )
 
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
@@ -62,7 +83,7 @@ class GoodsAdmin(admin.ModelAdmin):
     list_display = ('name', 'parent_category')
     list_filter = ('parent_category',)
     search_fields = ('name',)
-    inlines = [ProductImageInline, ProductDocumentInline]
+    inlines = [ProductImageInline, ProductDocumentInline, FAQInline]
 
 class AdminContactAdmin(admin.ModelAdmin):
     list_display = ('admin_contact', 'support_contact', 'is_active', 'updated_at')
@@ -74,3 +95,4 @@ admin.site.register(User, UserAdmin)
 admin.site.register(goods_category, GoodsCategoryAdmin)
 admin.site.register(goods, GoodsAdmin)
 admin.site.register(AdminContact, AdminContactAdmin)
+admin.site.register(FAQ, FAQAdmin)

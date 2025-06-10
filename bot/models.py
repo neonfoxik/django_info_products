@@ -11,6 +11,12 @@ class User(models.Model):
         max_length=35,
         verbose_name='Имя',
     )
+    phone_number = models.CharField(
+        max_length=20,
+        verbose_name='Номер телефона',
+        null=True,
+        blank=True
+    )
     is_admin = models.BooleanField(
         default=False,
         verbose_name='Является ли администратором'
@@ -100,7 +106,53 @@ class goods_category(models.Model):
     class Meta:
         verbose_name = 'Категория товаров'
         verbose_name_plural = 'Категории товаров'
-    
+
+class FAQ(models.Model):
+    """Модель для хранения отдельных FAQ"""
+    product = models.ForeignKey(
+        'goods',
+        on_delete=models.CASCADE,
+        related_name='faq_items',
+        verbose_name='Товар'
+    )
+    title = models.CharField(
+        max_length=255,
+        verbose_name='Название FAQ'
+    )
+    pdf_file = models.FileField(
+        upload_to='faq/',
+        verbose_name='PDF файл FAQ'
+    )
+    description = models.TextField(
+        verbose_name='Описание',
+        blank=True,
+        null=True
+    )
+    order = models.PositiveIntegerField(
+        verbose_name='Порядок отображения',
+        default=0
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Активен'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
+
+    def __str__(self):
+        return f"{self.title} - {self.product.name}"
+
+    class Meta:
+        verbose_name = 'FAQ'
+        verbose_name_plural = 'FAQ'
+        ordering = ['product', 'order', 'title']
+
 class ProductImage(models.Model):
     product = models.ForeignKey(
         'goods',
@@ -185,6 +237,12 @@ class goods(models.Model):
     extended_warranty = models.FloatField(
         verbose_name='Срок расширенной гарантии (в годах)',
         default=1.0
+    )
+    ai_instruction = models.TextField(
+        verbose_name='Инструкция для ИИ поддержки',
+        blank=True,
+        null=True,
+        help_text='Системное сообщение для ИИ при общении по данному товару'
     )
 
     def __str__(self):

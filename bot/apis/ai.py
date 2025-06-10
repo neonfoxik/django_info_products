@@ -2,7 +2,7 @@ import os
 import base64
 
 import dotenv
-import openai
+from openai import OpenAI
 
 from io import BytesIO
 
@@ -10,12 +10,13 @@ from django.conf import settings
 
 dotenv.load_dotenv()
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Инициализируем клиент OpenAI с API ключом и базовым URL
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    base_url="https://api.vsegpt.ru:6070/v1/"
+)
 
 ASSISTANT_PROMPT = settings.ASSISTANT_PROMPT
-
-# Устанавливаем URL API
-openai.base_url = "https://api.vsegpt.ru:6070/v1/"
 
 
 class BaseAIAPI:
@@ -32,26 +33,27 @@ class OpenAIAPI(BaseAIAPI):
     def __init__(self) -> None:
         super().__init__()
 
-    def _get_or_create_user_chat_history(self, chat_id: int, new_user_message: str = "") -> list:
-        chat_id_str = str(chat_id)  # Преобразуем в строку для использования в качестве ключа
+    def _get_or_create_user_chat_history(self, chat_id: int, text: str, ai_instruction: str = None) -> list:
+        chat_id_str = str(chat_id)
         
-        if not self.chat_history.get(chat_id_str):
-            self.chat_history[chat_id_str] = []
-            self.chat_history[chat_id_str].append({"role": "system", "content": self._ASSISTANT_PROMPT})
-            
-        if new_user_message:  # Добавляем сообщение пользователя только если оно не пустое
-            self.chat_history[chat_id_str].append({"role": "user", "content": new_user_message})
-            
+        # Используем пользовательскую AI инструкцию, если она предоставлена, иначе базовую
+        system_prompt = ai_instruction if ai_instruction else self._ASSISTANT_PROMPT
+        
+        if chat_id_str not in self.chat_history:
+            self.chat_history[chat_id_str] = [{"role": "system", "content": system_prompt}]
+        
+        self.chat_history[chat_id_str].append({"role": "user", "content": text})
+        
         return self.chat_history[chat_id_str]
 
-    def get_response(self, chat_id: int, text: str, max_token: int = 1024) -> dict:
+    def get_response(self, chat_id: int, text: str, ai_instruction: str = None, max_token: int = 1024) -> dict:
         try:
-            user_chat_history = self._get_or_create_user_chat_history(chat_id, text)
+            user_chat_history = self._get_or_create_user_chat_history(chat_id, text, ai_instruction)
             
             # Используем gpt-4o-mini без префикса openai/
             
             response = (
-                openai.chat.completions.create(
+                client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=user_chat_history,
                     temperature=self._TEMPERATURE,
@@ -72,16 +74,12 @@ class OpenAIAPI(BaseAIAPI):
 
             return answer
 
-        except openai.APIError as e:
-            error_msg = f"Ошибка API OpenAI: {str(e)}"
-            print(error_msg)
-            return {"message": "Извините, произошла ошибка при обращении к сервису AI. Пожалуйста, попробуйте позже."}
         except Exception as e:
             print(f"Не удалось получить ответ от AI: {e}")
             return {"message": "Извините, я не смог обработать ваш запрос. Пожалуйста, попробуйте еще раз или обратитесь в службу поддержки."}
 
-    def add_txt_to_user_chat_history(self, chat_id: int, text: str) -> None:
+    def add_txt_to_user_chat_history(self, chat_id: int, text: str, ai_instruction: str = None) -> None:
         try:
-            self._get_or_create_user_chat_history(chat_id, text)
+            self._get_or_create_user_chat_history(chat_id, text, ai_instruction)
         except Exception as e:
             print(f"Ошибка при добавлении текста в историю чата пользователя: {e}")

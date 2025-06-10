@@ -1,14 +1,11 @@
-from telebot.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from telebot.types import Message, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from bot import bot
 from bot.texts import MAIN_TEXT, SUPPORT_TEXT, SUPPORT_LIMIT_REACHED, AI_ERROR
-from bot.texts import EXTENDED_WARRANTY_TEXT, EXTENDED_WARRANTY_AVAILABLE, EXTENDED_WARRANTY_NOT_AVAILABLE
-from bot.texts import EXTENDED_WARRANTY_ACTIVATION, SEND_SCREENSHOT, SCREENSHOT_VERIFICATION_FAILED
-from bot.texts import EXTENDED_WARRANTY_ACTIVATED, SCREENSHOT_PROCESSING, SCREENSHOT_CHECKING, SCREENSHOT_INVALID, SCREENSHOT_VERIFIED
-from bot.texts import EXTENDED_WARRANTY_ACTIVATED, SCREENSHOT_PROCESSING, SCREENSHOT_CHECKING, SCREENSHOT_INVALID, SCREENSHOT_VERIFIED, SCREENSHOT_LIMIT_REACHED
+from bot.texts import SEND_SCREENSHOT, SCREENSHOT_PROCESSING, SCREENSHOT_CHECKING, SCREENSHOT_INVALID, SCREENSHOT_VERIFIED, SCREENSHOT_LIMIT_REACHED
 from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup
 from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup
 from .registration import start_registration
-from bot.models import goods, goods_category, User, AdminContact
+from bot.models import goods, goods_category, User, AdminContact, FAQ
 from bot.apis import analyze_screenshot
 from bot.apis.ai import OpenAIAPI
 from functools import wraps
@@ -21,12 +18,20 @@ import traceback
 from django.utils import timezone
 from django.conf import settings
 from bot.utils.excel_handler import WarrantyExcelHandler
+from telebot import TeleBot
+import re
 
 # Словарь для отслеживания процесса активации расширенной гарантии
 warranty_activation_state = {}
 
 # Словарь для хранения состояния ручного подтверждения скриншотов
 manual_confirmation_state = {}
+
+# Словарь для отслеживания состояния запроса номера телефона для гарантийных случаев
+warranty_case_phone_state = {}
+
+# Словарь для отслеживания состояния запроса описания проблемы
+warranty_case_description_state = {}
 
 logger = logging.getLogger(__name__)
 
@@ -460,7 +465,7 @@ def show_product_info(call: CallbackQuery) -> None:
             logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
         
         if info_type == "instructions":
-            # Получаем документ с инструкцией
+            # Получаем документ с инструкцией (старый формат)
             doc = product.documents.filter(document_type='instructions').first()
             if doc:
                 if doc.pdf_file and doc.text_content:
@@ -492,6 +497,8 @@ def show_product_info(call: CallbackQuery) -> None:
                     )
             else:
                 text = f"📖 Инструкция по применению {product.name} отсутствует."
+                markup = InlineKeyboardMarkup()
+                markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
                 bot.send_message(
                     chat_id=call.message.chat.id,
                     text=text,
@@ -499,44 +506,73 @@ def show_product_info(call: CallbackQuery) -> None:
                 )
                 
         elif info_type == "faq":
-            # Получаем документ с FAQ
-            doc = product.documents.filter(document_type='faq').first()
-            if doc:
-                if doc.pdf_file and doc.text_content:
-                    # Если есть и PDF файл, и текст, отправляем их одним сообщением
-                    text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
-                    with open(doc.pdf_file.path, 'rb') as pdf:
-                        bot.send_document(
-                            chat_id=call.message.chat.id,
-                            document=pdf,
-                            caption=text,
-                            reply_markup=markup
-                        )
-                elif doc.pdf_file:
-                    # Если есть только PDF файл
-                    with open(doc.pdf_file.path, 'rb') as pdf:
-                        bot.send_document(
-                            chat_id=call.message.chat.id,
-                            document=pdf,
-                            caption=f"❓ Часто задаваемые вопросы о {product.name}",
-                            reply_markup=markup
-                        )
-                elif doc.text_content:
-                    # Если есть только текст
-                    text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
-                    bot.send_message(
-                        chat_id=call.message.chat.id,
-                        text=text,
-                        reply_markup=markup
+            # Получаем все активные FAQ для товара
+            faqs = FAQ.objects.filter(
+                product=product, 
+                is_active=True
+            ).order_by('order', 'title')
+            
+            if faqs.exists():
+                # Создаем клавиатуру с FAQ
+                markup = InlineKeyboardMarkup()
+                
+                for faq in faqs:
+                    btn = InlineKeyboardButton(
+                        faq.title,
+                        callback_data=f"faq_pdf_{faq.id}"
                     )
-            else:
-                text = f"❓ Часто задаваемые вопросы о {product.name} отсутствуют."
+                    markup.add(btn)
+                
+                # Добавляем кнопку назад
+                back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}")
+                markup.add(back_btn)
+                
+                text = f"❓ Часто задаваемые вопросы о {product.name}:\n\nВыберите интересующий вопрос:"
                 bot.send_message(
                     chat_id=call.message.chat.id,
                     text=text,
                     reply_markup=markup
                 )
-                
+            else:
+                # Если FAQ нет, проверяем старый формат (ProductDocument)
+                doc = product.documents.filter(document_type='faq').first()
+                if doc:
+                    if doc.pdf_file and doc.text_content:
+                        # Если есть и PDF файл, и текст, отправляем их одним сообщением
+                        text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
+                        with open(doc.pdf_file.path, 'rb') as pdf:
+                            bot.send_document(
+                                chat_id=call.message.chat.id,
+                                document=pdf,
+                                caption=text,
+                                reply_markup=markup
+                            )
+                    elif doc.pdf_file:
+                        # Если есть только PDF файл
+                        with open(doc.pdf_file.path, 'rb') as pdf:
+                            bot.send_document(
+                                chat_id=call.message.chat.id,
+                                document=pdf,
+                                caption=f"❓ Часто задаваемые вопросы о {product.name}",
+                                reply_markup=markup
+                            )
+                    elif doc.text_content:
+                        # Если есть только текст
+                        text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
+                        bot.send_message(
+                            chat_id=call.message.chat.id,
+                            text=text,
+                            reply_markup=markup
+                        )
+                else:
+                    text = f"❓ Часто задаваемые вопросы о {product.name} отсутствуют."
+                    markup = InlineKeyboardMarkup()
+                    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
+                    bot.send_message(
+                        chat_id=call.message.chat.id,
+                        text=text,
+                        reply_markup=markup
+                    )
         elif info_type == "warranty":
             # Получаем документ с гарантией
             doc = product.documents.filter(document_type='warranty').first()
@@ -1306,9 +1342,186 @@ def show_my_warranties(call: CallbackQuery) -> None:
             reply_markup=back_to_main_markup
         )
 
-def chat_with_ai(message: Message) -> None:
-    """Обработчик для общения с ИИ"""
+@disable_ai_mode
+@bot.callback_query_handler(func=lambda call: call.data.startswith('support_'))
+def product_support(call: CallbackQuery) -> None:
+    """Обработчик для кнопки поддержки в меню товара"""
     try:
+        product_id = int(call.data.split('_')[1])
+        product = goods.objects.get(id=product_id)
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        
+        # Включаем режим ИИ для общения с поддержкой
+        user.is_ai = True
+        
+        # Сохраняем product_id в истории чата для передачи в AI
+        chat_history = user.chat_history or {}
+        chat_history['product_id'] = product_id
+        chat_history['ai_counter'] = 0  # Сбрасываем счетчик
+        user.chat_history = chat_history
+        user.save()
+        
+        # Формируем сообщение с учетом AI инструкции товара
+        support_text = f"📞 Поддержка по товару: {product.name}\n\nВы можете задать свой вопрос о данном товаре в этот чат."
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=support_text,
+            reply_markup=back_to_main_markup
+        )
+        
+        print(f"[LOG] Активирована поддержка для товара {product.name} пользователем {user.telegram_id}")
+        logger.info(f"[LOG] Активирована поддержка для товара {product.name} пользователем {user.telegram_id}")
+        
+    except (goods.DoesNotExist, User.DoesNotExist, ValueError) as e:
+        bot.answer_callback_query(call.id, "Произошла ошибка. Пожалуйста, попробуйте позже.")
+        logger.error(f"Ошибка в product_support: {e}")
+
+def send_chat_history_to_admin(user: User, chat_history: dict, product_id: int = None):
+    """Отправляет историю переписки администратору"""
+    try:
+        # Получаем всех администраторов
+        admin_users = User.objects.filter(is_admin=True)
+        
+        if not admin_users.exists():
+            print("[WARNING] Нет администраторов для отправки уведомления")
+            logger.warning("[WARNING] Нет администраторов для отправки уведомления")
+            return
+        
+        # Формируем сообщение с историей переписки
+        product_name = "Неизвестный товар"
+        if product_id:
+            try:
+                product = goods.objects.get(id=product_id)
+                product_name = product.name
+            except goods.DoesNotExist:
+                pass
+        
+        # Получаем историю из AI API
+        ai = OpenAIAPI()
+        user_chat_history = ai.chat_history.get(str(user.telegram_id), [])
+        
+        # Формируем текст истории переписки
+        history_text = ""
+        for message in user_chat_history:
+            if message.get('role') == 'user':
+                history_text += f"👤 Пользователь: {message.get('content', '')}\n\n"
+            elif message.get('role') == 'assistant':
+                history_text += f"🤖 AI: {message.get('content', '')}\n\n"
+        
+        # Ограничиваем длину сообщения
+        if len(history_text) > 3000:
+            history_text = history_text[:3000] + "...\n\n[История обрезана]"
+        
+        notification_text = (
+            f"🚨 УВЕДОМЛЕНИЕ О ПРЕВЫШЕНИИ ЛИМИТА AI\n\n"
+            f"👤 Пользователь: {user.user_name} (@{user.telegram_id})\n"
+            f"📱 Товар: {product_name}\n"
+            f"⏰ Время: {timezone.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+            f"📝 История переписки:\n"
+            f"{history_text}"
+        )
+        
+        # Отправляем уведомление всем администраторам
+        for admin in admin_users:
+            try:
+                bot.send_message(
+                    chat_id=admin.telegram_id,
+                    text=notification_text
+                )
+                print(f"[LOG] Уведомление отправлено администратору {admin.telegram_id}")
+                logger.info(f"[LOG] Уведомление отправлено администратору {admin.telegram_id}")
+            except Exception as e:
+                print(f"[ERROR] Ошибка отправки уведомления администратору {admin.telegram_id}: {e}")
+                logger.error(f"[ERROR] Ошибка отправки уведомления администратору {admin.telegram_id}: {e}")
+                
+    except Exception as e:
+        print(f"[ERROR] Ошибка в send_chat_history_to_admin: {e}")
+        logger.error(f"[ERROR] Ошибка в send_chat_history_to_admin: {e}")
+
+def send_chat_history_to_admin_fixed(user: User, chat_history: dict, product_id: int = None):
+    """
+    Исправленная версия функции для отправки истории переписки администратору.
+    Получает историю из базы данных пользователя.
+    """
+    try:
+        # Получаем всех администраторов
+        admin_users = User.objects.filter(is_admin=True)
+        if not admin_users.exists():
+            logger.warning("Нет администраторов для отправки уведомления")
+            return
+        
+        # Получаем название товара
+        product_name = "Неизвестный товар"
+        if product_id:
+            try:
+                product = goods.objects.get(id=product_id)
+                product_name = product.name
+            except goods.DoesNotExist:
+                pass
+        
+        # Получаем историю переписки из базы данных пользователя
+        conversation_history = chat_history.get('conversation_history', [])
+        
+        # Формируем текст истории переписки
+        history_text = ""
+        if conversation_history:
+            for msg in conversation_history:
+                role = msg.get('role', 'unknown')
+                content = msg.get('content', '')
+                timestamp = msg.get('timestamp', '')
+                
+                if role == 'user':
+                    history_text += f"👤 Пользователь: {content}\n"
+                elif role == 'assistant':
+                    history_text += f"🤖 AI: {content}\n"
+                
+                # Ограничиваем длину сообщения
+                if len(history_text) > 3000:
+                    history_text = history_text[:3000] + "\n\n... (история обрезана из-за ограничения длины)"
+                    break
+        else:
+            history_text = "История переписки пуста или недоступна.\nВозможно, пользователь достиг лимита до отправки сообщений."
+        
+        # Формируем сообщение для администратора
+        admin_message = f"""🚨 УВЕДОМЛЕНИЕ О ПРЕВЫШЕНИИ ЛИМИТА AI
+
+👤 Пользователь: {user.user_name} (@{user.telegram_id})
+📱 Товар: {product_name}
+⏰ Время: {timezone.now().strftime('%d.%m.%Y %H:%M')}
+
+📝 История переписки:
+{history_text}"""
+        
+        # Отправляем уведомление всем администраторам
+        for admin in admin_users:
+            try:
+                bot.send_message(admin.telegram_id, admin_message)
+                logger.info(f"Уведомление отправлено администратору {admin.telegram_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления администратору {admin.telegram_id}: {e}")
+        
+        # Очищаем AI историю после отправки уведомления
+        ai = OpenAIAPI()
+        ai.clear_chat_history(int(user.telegram_id))
+        logger.info(f"AI история очищена для пользователя {user.telegram_id}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в send_chat_history_to_admin_fixed: {e}")
+
+def chat_with_ai(message):
+    try:
+        # Проверяем, ожидает ли пользователь ввода номера телефона для гарантийного случая
+        if message.chat.id in warranty_case_phone_state:
+            process_warranty_case_contact(message)
+            return
+        
+        # Проверяем, ожидает ли пользователь ввода описания проблемы для гарантийного случая
+        if message.chat.id in warranty_case_description_state:
+            process_warranty_case_description(message)
+            return
+
         user = User.objects.get(telegram_id=message.chat.id)
         
         # Проверяем, не является ли сообщение командой или кнопкой меню
@@ -1321,23 +1534,20 @@ def chat_with_ai(message: Message) -> None:
         elif message.text == "🔧 Гарантийный случай":
             show_warranty_cases(CallbackQuery(message=message))
             return
-        elif message.text == "💬 Поддержка":
-            support_menu(CallbackQuery(message=message))
-            return
         elif message.text == "🔧 Админ-панель":
             handle_admin_panel(message)
             return
         
         # Проверяем, активирован ли режим общения с ИИ
         if not user.is_ai:
-            # Если пользователь не в режиме AI, отправляем сообщение о необходимости нажать кнопку поддержки
+            # Если пользователь не в режиме AI, предлагаем перейти к каталогу
             markup = InlineKeyboardMarkup()
-            support_btn = InlineKeyboardButton("💬 Поддержка", callback_data="support_menu")
-            markup.add(support_btn)
+            catalog_btn = InlineKeyboardButton("📱 Каталог товаров", callback_data="catalog")
+            markup.add(catalog_btn)
             
             bot.send_message(
                 chat_id=message.chat.id,
-                text="Для общения с поддержкой, пожалуйста, нажмите кнопку 'Поддержка' в главном меню.",
+                text="Для получения поддержки выберите товар из каталога и нажмите кнопку 'Поддержка'.",
                 reply_markup=markup
             )
             return
@@ -1354,6 +1564,12 @@ def chat_with_ai(message: Message) -> None:
         
         # Если уже было отправлено 3 сообщения, отключаем ИИ и отправляем сообщение
         if ai_counter >= 3:
+            # Получаем ID товара для отправки администратору
+            product_id = chat_history.get('product_id')
+            
+            # Отправляем историю переписки администратору
+            send_chat_history_to_admin_fixed(user, chat_history, product_id)
+            
             user.is_ai = False
             user.chat_history = {}
             user.save()
@@ -1381,22 +1597,44 @@ def chat_with_ai(message: Message) -> None:
         # Получаем ответ от ИИ
         ai = OpenAIAPI()
         
-        # Если есть информация о товаре, добавляем её в контекст
+        # Получаем ID товара из истории чата
         product_id = chat_history.get('product_id')
+        ai_instruction = None
+        
         if product_id:
             try:
                 product = goods.objects.get(id=product_id)
-                message.text = f"Вопрос о товаре {product.name}: {message.text}"
+                # Получаем AI инструкцию для данного товара
+                ai_instruction = product.ai_instruction
+                print(f"[LOG] Используется AI инструкция для товара {product.name}")
+                logger.info(f"[LOG] Используется AI инструкция для товара {product.name}")
             except goods.DoesNotExist:
                 pass
         
-        response = ai.get_response(message.chat.id, message.text)
+        response = ai.get_response(message.chat.id, message.text, ai_instruction)
         
         if response and 'message' in response:
             bot.send_message(message.chat.id, response['message'])
             
             # Увеличиваем счетчик сообщений
             chat_history['ai_counter'] = ai_counter + 1
+            
+            # Сохраняем историю переписки для отправки администратору
+            if 'conversation_history' not in chat_history:
+                chat_history['conversation_history'] = []
+            
+            # Добавляем сообщение пользователя и ответ AI
+            chat_history['conversation_history'].append({
+                'role': 'user',
+                'content': message.text,
+                'timestamp': timezone.now().isoformat()
+            })
+            chat_history['conversation_history'].append({
+                'role': 'assistant', 
+                'content': response['message'],
+                'timestamp': timezone.now().isoformat()
+            })
+            
             user.chat_history = chat_history
             user.save()
             
@@ -1454,51 +1692,6 @@ def back_to_categories(call: CallbackQuery) -> None:
         pass
     
     show_categories(call.message.chat.id, call.message.message_id)
-
-@disable_ai_mode
-def support_menu(call: CallbackQuery) -> None:
-    """Обработчик для меню поддержки"""
-    try:
-        user = User.objects.get(telegram_id=call.message.chat.id)
-        user.is_ai = True
-        user.save()
-        
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=SUPPORT_TEXT,
-            reply_markup=back_to_main_markup
-        )
-    except User.DoesNotExist:
-        bot.answer_callback_query(call.id, "Пользователь не найден. Пожалуйста, начните с команды /start")
-
-@disable_ai_mode
-@bot.callback_query_handler(func=lambda call: call.data.startswith('support_'))
-def product_support(call: CallbackQuery) -> None:
-    """Обработчик для кнопки поддержки в меню товара"""
-    try:
-        # Проверяем, не является ли это кнопкой поддержки из главного меню
-        if call.data == 'support_menu':
-            support_menu(call)
-            return
-            
-        product_id = int(call.data.split('_')[1])
-        product = goods.objects.get(id=product_id)
-        user = User.objects.get(telegram_id=call.message.chat.id)
-        
-        # Включаем режим ИИ для общения с поддержкой
-        user.is_ai = True
-        user.save()
-        
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=f"Вы общаетесь с поддержкой по товару: {product.name}\n\n{SUPPORT_TEXT}",
-            reply_markup=back_to_main_markup
-        )
-    except (goods.DoesNotExist, User.DoesNotExist, ValueError) as e:
-        bot.answer_callback_query(call.id, "Произошла ошибка. Пожалуйста, попробуйте позже.")
-        logger.error(f"Ошибка в product_support: {e}")
 
 @disable_ai_mode
 def admin_panel(call: CallbackQuery) -> None:
@@ -1707,44 +1900,42 @@ def handle_warranty_case(call: CallbackQuery) -> None:
         user = User.objects.get(telegram_id=call.from_user.id)
         product = goods.objects.get(id=product_id)
         
-        # Получаем контакт администратора
-        admin_contact = AdminContact.objects.filter(is_active=True).first()
+        print(f"[LOG] Запрос гарантийного случая от пользователя {user.telegram_id} для товара {product.name}")
+        logger.info(f"[LOG] Запрос гарантийного случая от пользователя {user.telegram_id} для товара {product.name}")
         
-        # Отправляем уведомление админам
-        admin_users = User.objects.filter(is_admin=True)
-        for admin in admin_users:
-            bot.send_message(
-                chat_id=admin.telegram_id,
-                text=f"⚠️ Новый гарантийный случай!\n"
-                     f"Пользователь: {user.user_name}\n"
-                     f"Товар: {product.name}\n"
-                     f"ID пользователя: {user.telegram_id}\n"
-                     f"TG us пользователя: @{call.from_user.username}"
-            )
+        # Сохраняем состояние ожидания номера телефона
+        warranty_case_phone_state[call.from_user.id] = {
+            'product_id': product_id,
+            'message_id': call.message.message_id,
+            'waiting_for_phone': True
+        }
         
-        # Отправляем сообщение пользователю
-        if call.from_user.username:
-            message = (
-                f"✅ Ваша заявка на гарантийный случай принята!\n"
-                f"Администратор скоро свяжется с вами.\n\n"
-                f"Контакт администратора:\n{admin_contact.admin_contact if admin_contact else 'Не указан'}"
-            )
-        else:
-            message = (
-                f"❌ Мы не можем связаться с вами, так как у вас не указан Telegram ID.\n"
-                f"Пожалуйста, свяжитесь с администратором самостоятельно:\n\n"
-                f"{admin_contact.admin_contact if admin_contact else 'Не указан'}"
-            )
-        
+        # Создаем клавиатуру с кнопкой для отправки контакта
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("◀️ Назад", callback_data="back_to_main"))
+        # Добавляем кнопку для отправки контакта (будет работать только в личных сообщениях)
+        share_contact_btn = InlineKeyboardButton(
+            "📞 Поделиться номером телефона", 
+            callback_data=f"request_contact_{product_id}"
+        )
+        cancel_btn = InlineKeyboardButton("❌ Отменить", callback_data="back_to_main")
+        markup.add(share_contact_btn)
+        markup.add(cancel_btn)
         
+        # Запрашиваем номер телефона
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=message,
+            text=(
+                f"📞 Для обработки гарантийного случая по товару '{product.name}' "
+                f"нам нужен ваш номер телефона для связи.\n\n"
+                f"Пожалуйста, нажмите кнопку ниже или отправьте ваш номер телефона в формате:\n"
+                f"+7 (999) 123-45-67"
+            ),
             reply_markup=markup
         )
+        
+        print(f"[LOG] Запрошен номер телефона у пользователя {user.telegram_id}")
+        logger.info(f"[LOG] Запрошен номер телефона у пользователя {user.telegram_id}")
         
     except (ValueError, goods.DoesNotExist) as e:
         print(f"[ERROR] Ошибка при обработке гарантийного случая: {e}")
@@ -1754,4 +1945,355 @@ def handle_warranty_case(call: CallbackQuery) -> None:
             text="Произошла ошибка. Пожалуйста, попробуйте снова."
         )
 
+@disable_ai_mode
+def send_instruction_pdf(call: CallbackQuery, bot: TeleBot) -> None:
+    """Отправляет PDF файл инструкции"""
+    try:
+        instruction_id = int(call.data.split('_')[-1])
+        instruction = FAQ.objects.get(id=instruction_id, is_active=True)
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_instructions_{instruction.product.id}"))
+        
+        if instruction.pdf_file:
+            with open(instruction.pdf_file.path, 'rb') as pdf:
+                caption = f"📖 {instruction.title}"
+                if instruction.description:
+                    caption += f"\n\n{instruction.description}"
+                
+                bot.send_document(
+                    chat_id=call.message.chat.id,
+                    document=pdf,
+                    caption=caption,
+                    reply_markup=markup
+                )
+        else:
+            text = f"📖 {instruction.title}\n\nПDF файл не найден."
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text=text,
+                reply_markup=markup
+            )
+    except (ValueError, FAQ.DoesNotExist):
+        # Если произошла ошибка, возвращаемся к списку товаров
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text="Ошибка: Инструкция не найдена."
+        )
 
+def send_faq_pdf(call: CallbackQuery, bot: TeleBot) -> None:
+    """Отправляет PDF файл FAQ"""
+    try:
+        faq_id = int(call.data.split('_')[-1])
+        faq = FAQ.objects.get(id=faq_id, is_active=True)
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_faq_{faq.product.id}"))
+        
+        if faq.pdf_file:
+            with open(faq.pdf_file.path, 'rb') as pdf:
+                caption = f"❓ {faq.title}"
+                if faq.description:
+                    caption += f"\n\n{faq.description}"
+                
+                bot.send_document(
+                    chat_id=call.message.chat.id,
+                    document=pdf,
+                    caption=caption,
+                    reply_markup=markup
+                )
+        else:
+            text = f"❓ {faq.title}\n\nПDF файл не найден."
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text=text,
+                reply_markup=markup
+            )
+    except (ValueError, FAQ.DoesNotExist):
+        # Если произошла ошибка, возвращаемся к списку товаров
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text="Ошибка: FAQ не найден."
+        )
+
+@disable_ai_mode
+def request_contact_for_warranty(call: CallbackQuery) -> None:
+    """Запрашивает контакт пользователя для гарантийного случая"""
+    try:
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+        
+        product_id = int(parts[2])
+        
+        # Создаем клавиатуру с кнопкой запроса контакта
+        markup = ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        contact_btn = KeyboardButton("📞 Поделиться номером телефона", request_contact=True)
+        cancel_btn = KeyboardButton("❌ Отменить")
+        markup.add(contact_btn)
+        markup.add(cancel_btn)
+        
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text="Нажмите кнопку ниже, чтобы поделиться вашим номером телефона:",
+            reply_markup=markup
+        )
+        
+        print(f"[LOG] Запрошен контакт у пользователя {call.from_user.id}")
+        logger.info(f"[LOG] Запрошен контакт у пользователя {call.from_user.id}")
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при запросе контакта: {e}")
+        logger.error(f"[ERROR] Ошибка при запросе контакта: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+@disable_ai_mode
+def process_warranty_case_contact(message) -> None:
+    """Обрабатывает полученный контакт для гарантийного случая"""
+    try:
+        user_id = message.chat.id
+        
+        # Проверяем, ожидаем ли мы номер телефона от этого пользователя
+        if user_id not in warranty_case_phone_state:
+            return
+        
+        phone_number = None
+        
+        # Получаем номер телефона из контакта или текста
+        if hasattr(message, 'contact') and message.contact:
+            phone_number = message.contact.phone_number
+            print(f"[LOG] Получен контакт от пользователя {user_id}: {phone_number}")
+        elif hasattr(message, 'text') and message.text:
+            # Проверяем, не является ли это отменой
+            if message.text == "❌ Отменить":
+                # Удаляем состояние и возвращаемся в главное меню
+                del warranty_case_phone_state[user_id]
+                from bot.keyboards import main_markup
+                bot.send_message(
+                    chat_id=user_id,
+                    text="Операция отменена.",
+                    reply_markup=main_markup
+                )
+                return
+            
+            # Пытаемся извлечь номер телефона из текста
+            import re
+            # Паттерн для российских номеров
+            phone_pattern = r'(\+?7|8)?[\s\-\(\)]?(\d{3})[\s\-\(\)]?(\d{3})[\s\-]?(\d{2})[\s\-]?(\d{2})'
+            match = re.search(phone_pattern, message.text)
+            if match:
+                # Формируем номер в стандартном формате
+                groups = match.groups()
+                if groups[0] in ['8', None]:
+                    phone_number = f"+7{groups[1]}{groups[2]}{groups[3]}{groups[4]}"
+                else:
+                    phone_number = f"+7{groups[1]}{groups[2]}{groups[3]}{groups[4]}"
+                print(f"[LOG] Извлечен номер телефона из текста: {phone_number}")
+            else:
+                bot.send_message(
+                    chat_id=user_id,
+                    text="Неверный формат номера телефона. Пожалуйста, отправьте номер в формате +7 (999) 123-45-67 или используйте кнопку для отправки контакта."
+                )
+                return
+        
+        if not phone_number:
+            bot.send_message(
+                chat_id=user_id,
+                text="Не удалось получить номер телефона. Пожалуйста, попробуйте еще раз."
+            )
+            return
+        
+        # Получаем информацию о пользователе и товаре
+        state_data = warranty_case_phone_state[user_id]
+        product_id = state_data['product_id']
+        
+        user = User.objects.get(telegram_id=user_id)
+        product = goods.objects.get(id=product_id)
+        
+        # Сохраняем номер телефона пользователя
+        user.phone_number = phone_number
+        user.save()
+        
+        # Удаляем состояние ожидания номера телефона
+        del warranty_case_phone_state[user_id]
+        
+        # Устанавливаем состояние ожидания описания проблемы
+        warranty_case_description_state[user_id] = {
+            'product_id': product_id,
+            'phone_number': phone_number,
+            'waiting_for_description': True
+        }
+        
+        # Убираем специальную клавиатуру и запрашиваем описание проблемы
+        from bot.keyboards import main_markup
+        markup = InlineKeyboardMarkup()
+        cancel_btn = InlineKeyboardButton("❌ Отменить", callback_data="back_to_main")
+        markup.add(cancel_btn)
+        
+        bot.send_message(
+            chat_id=user_id,
+            text=(
+                f"📞 Номер телефона получен: {phone_number}\n\n"
+                f"📝 Теперь, пожалуйста, кратко опишите проблему с товаром '{product.name}':\n\n"
+                f"Например:\n"
+                f"• Не включается\n"
+                f"• Сломался через неделю использования\n"
+                f"• Не работает как заявлено\n"
+                f"• Брак или дефект"
+            ),
+            reply_markup=markup
+        )
+        
+        print(f"[LOG] Запрошено описание проблемы у пользователя {user_id}")
+        logger.info(f"[LOG] Запрошено описание проблемы у пользователя {user_id}")
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при обработке контакта для гарантийного случая: {e}")
+        logger.error(f"[ERROR] Ошибка при обработке контакта для гарантийного случая: {e}")
+        
+        # Удаляем состояние ожидания в случае ошибки
+        if user_id in warranty_case_phone_state:
+            del warranty_case_phone_state[user_id]
+        
+        from bot.keyboards import main_markup
+        bot.send_message(
+            chat_id=user_id,
+            text="Произошла ошибка при обработке заявки. Пожалуйста, попробуйте позже.",
+            reply_markup=main_markup
+        )
+
+@disable_ai_mode
+def process_warranty_case_description(message) -> None:
+    """Обрабатывает описание проблемы для гарантийного случая"""
+    try:
+        user_id = message.chat.id
+        
+        # Проверяем, ожидаем ли мы описание проблемы от этого пользователя
+        if user_id not in warranty_case_description_state:
+            return
+        
+        # Проверяем, не является ли это отменой
+        if hasattr(message, 'text') and message.text == "❌ Отменить":
+            # Удаляем состояние и возвращаемся в главное меню
+            del warranty_case_description_state[user_id]
+            from bot.keyboards import main_markup
+            bot.send_message(
+                chat_id=user_id,
+                text="Операция отменена.",
+                reply_markup=main_markup
+            )
+            return
+        
+        # Получаем описание проблемы
+        if not hasattr(message, 'text') or not message.text:
+            bot.send_message(
+                chat_id=user_id,
+                text="Пожалуйста, отправьте текстовое описание проблемы."
+            )
+            return
+        
+        problem_description = message.text.strip()
+        
+        # Ограничиваем длину описания
+        if len(problem_description) > 500:
+            bot.send_message(
+                chat_id=user_id,
+                text="Описание слишком длинное. Пожалуйста, опишите проблему кратко (до 500 символов)."
+            )
+            return
+        
+        if len(problem_description) < 5:
+            bot.send_message(
+                chat_id=user_id,
+                text="Описание слишком короткое. Пожалуйста, опишите проблему более подробно."
+            )
+            return
+        
+        # Получаем информацию из состояния
+        state_data = warranty_case_description_state[user_id]
+        product_id = state_data['product_id']
+        phone_number = state_data['phone_number']
+        
+        user = User.objects.get(telegram_id=user_id)
+        product = goods.objects.get(id=product_id)
+        
+        # Получаем скриншот отзыва пользователя для данного товара
+        warranty_data = user.warranty_data or {}
+        product_warranty = warranty_data.get(str(product_id), {})
+        screenshot_data = product_warranty.get('screenshot')
+        
+        # Получаем контакт администратора
+        admin_contact = AdminContact.objects.filter(is_active=True).first()
+        
+        # Отправляем уведомление админам
+        admin_users = User.objects.filter(is_admin=True)
+        for admin in admin_users:
+            admin_message = (
+                f"⚠️ Новый гарантийный случай!\n\n"
+                f"👤 Пользователь: {user.user_name}\n"
+                f"📱 Товар: {product.name}\n"
+                f"📞 Телефон: {phone_number}\n"
+                f"🆔 ID пользователя: {user.telegram_id}\n"
+                f"📝 Описание проблемы:\n{problem_description}\n"
+            )
+            
+            if hasattr(message, 'from_user') and message.from_user.username:
+                admin_message += f"📨 Telegram: @{message.from_user.username}\n"
+            
+            # Отправляем основную информацию
+            sent_message = bot.send_message(
+                chat_id=admin.telegram_id,
+                text=admin_message
+            )
+            
+            # Если есть скриншот отзыва, отправляем его отдельно
+            if screenshot_data and screenshot_data.get('photo_id'):
+                try:
+                    bot.send_photo(
+                        chat_id=admin.telegram_id,
+                        photo=screenshot_data['photo_id'],
+                        caption=f"📸 Скриншот отзыва для верификации гарантии\n"
+                               f"📅 Дата загрузки: {screenshot_data.get('upload_date', 'Не указана')}"
+                    )
+                    print(f"[LOG] Отправлен скриншот отзыва админу {admin.telegram_id}")
+                except Exception as e:
+                    print(f"[ERROR] Ошибка при отправке скриншота админу: {e}")
+                    logger.error(f"[ERROR] Ошибка при отправке скриншота админу: {e}")
+        
+        # Удаляем состояние ожидания
+        del warranty_case_description_state[user_id]
+        
+        # Отправляем подтверждение пользователю
+        from bot.keyboards import main_markup
+        confirmation_message = (
+            f"✅ Ваша заявка на гарантийный случай принята!\n\n"
+            f"📱 Товар: {product.name}\n"
+            f"📞 Контактный телефон: {phone_number}\n"
+            f"📝 Описание проблемы: {problem_description}\n\n"
+            f"Администратор скоро свяжется с вами.\n\n"
+            f"Контакт администратора:\n{admin_contact.admin_contact if admin_contact else 'Не указан'}"
+        )
+        
+        bot.send_message(
+            chat_id=user_id,
+            text=confirmation_message,
+            reply_markup=main_markup
+        )
+        
+        print(f"[LOG] Гарантийный случай обработан для пользователя {user_id}, товар {product.name}")
+        logger.info(f"[LOG] Гарантийный случай обработан для пользователя {user_id}, товар {product.name}")
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при обработке описания проблемы: {e}")
+        logger.error(f"[ERROR] Ошибка при обработке описания проблемы: {e}")
+        
+        # Удаляем состояние ожидания в случае ошибки
+        if user_id in warranty_case_description_state:
+            del warranty_case_description_state[user_id]
+        
+        from bot.keyboards import main_markup
+        bot.send_message(
+            chat_id=user_id,
+            text="Произошла ошибка при обработке заявки. Пожалуйста, попробуйте позже.",
+            reply_markup=main_markup
+        )

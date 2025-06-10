@@ -14,12 +14,13 @@ from bot.utils.excel_handler import WarrantyExcelHandler
 
 # Импортируем все обработчики из handlers/__init__.py
 from bot.handlers import (
-    start, menu_call, back_to_main, support_menu, 
+    start, menu_call, back_to_main, 
     show_categories, show_category_products, show_product_menu, show_product_info,
     chat_with_ai, activate_warranty, back_to_categories,
     cancel_warranty_activation, show_my_warranties, check_screenshot,
     confirm_review, cancel_review, send_excel_to_admin, admin_command,
-    show_warranty_cases, handle_warranty_case
+    show_warranty_cases, handle_warranty_case, send_instruction_pdf,
+    request_contact_for_warranty, process_warranty_case_contact
 )
 
 
@@ -81,9 +82,11 @@ def index(request: HttpRequest) -> JsonResponse:
 start = bot.message_handler(commands=["start"])(start)
 menu_call = bot.callback_query_handler(lambda c: c.data == "menu")(menu_call)
 back_to_main_handler = bot.callback_query_handler(lambda c: c.data == "back_to_main")(back_to_main)
-support_menu_handler = bot.callback_query_handler(lambda c: c.data == "support_menu")(support_menu)
 my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "my_warranties")(show_my_warranties)
 admin_command_handler = bot.message_handler(commands=['admin'])(admin_command)
+
+# Обработчик для контактов и номеров телефона в гарантийных случаях
+contact_handler = bot.message_handler(content_types=['contact'])(process_warranty_case_contact)
 
 # Явный обработчик для фотографий
 photo_handler = bot.message_handler(content_types=['photo'])(check_screenshot)
@@ -117,4 +120,10 @@ admin_excel_handler = bot.callback_query_handler(lambda c: c.data == "admin_exce
 # Обработчики для гарантийных случаев
 warranty_cases_handler = bot.callback_query_handler(lambda c: c.data == "warranty_cases")(show_warranty_cases)
 warranty_case_handler = bot.callback_query_handler(lambda c: c.data.startswith("atwarranty_case_"))(handle_warranty_case)
+
+# Обработчики для запроса контакта в гарантийном случае
+request_contact_handler = bot.callback_query_handler(lambda c: c.data.startswith("request_contact_"))(request_contact_for_warranty)
+
+# Обработчики для PDF инструкций
+instruction_pdf_handler = bot.callback_query_handler(lambda c: c.data.startswith("instruction_pdf_"))(send_instruction_pdf)
 

@@ -1,5 +1,5 @@
 import os
-import openai
+from openai import OpenAI
 import base64
 import dotenv
 import logging
@@ -10,9 +10,11 @@ from telebot.types import PhotoSize
 
 dotenv.load_dotenv()
 
-# Настраиваем API ключ и URL
-openai.api_key = os.getenv("OPENAI_API_KEY")
-openai.base_url = "https://api.vsegpt.ru:6070/v1/"
+# Инициализируем клиент OpenAI с API ключом и базовым URL
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    base_url="https://api.vsegpt.ru:6070/v1/"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +106,7 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                     })
             
             # Вызываем модель с поддержкой компьютерного зрения
-            response = openai.chat.completions.create(
+            response = client.chat.completions.create(
                 model="vis-google/gemini-flash-1.5",
                 messages=messages,
                 max_tokens=100

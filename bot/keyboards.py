@@ -10,9 +10,8 @@ from django.contrib.auth.models import User
 # Главное меню
 main_markup = InlineKeyboardMarkup()
 btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog")
-btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="support_menu")
 btn3 = InlineKeyboardButton("🛡️ Мои гарантии", callback_data="my_warranties")
-main_markup.add(btn1).add(btn2).add(btn3)
+main_markup.add(btn1).add(btn3)
 
 # Клавиатура для возврата в главное меню
 back_to_main_markup = InlineKeyboardMarkup()
@@ -29,7 +28,7 @@ def get_back_markup(callback_data):
 # Клавиатура для товара без кнопки расширенной гарантии
 def get_product_menu_markup(product_id):
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("📖 Инструкция", callback_data=f"instructions_{product_id}"))
+    markup.add(InlineKeyboardButton("📖 Инструкции", callback_data=f"instructions_{product_id}"))
     markup.add(InlineKeyboardButton("❓ FAQ", callback_data=f"faq_{product_id}"))
     markup.add(InlineKeyboardButton("🛡️ Гарантия", callback_data=f"warranty_{product_id}"))
     markup.add(InlineKeyboardButton("📞 Поддержка", callback_data=f"support_{product_id}"))
@@ -55,7 +54,6 @@ def get_main_markup(user_id: int) -> ReplyKeyboardMarkup:
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("📱 Каталог товаров")
     markup.row("🛡️ Мои гарантии", "🔧 Гарантийный случай")
-    markup.row("💬 Поддержка")
     if User.objects.get(telegram_id=user_id).is_admin:
         markup.row("🔧 Админ-панель")
     return markup

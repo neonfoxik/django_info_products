@@ -9,7 +9,6 @@ from .common import (
     chat_with_ai,
     back_to_main,
     back_to_categories,
-    support_menu,
     activate_warranty,
     cancel_warranty_activation,
     show_my_warranties,
@@ -19,7 +18,11 @@ from .common import (
     send_excel_to_admin,
     admin_command,
     show_warranty_cases,
-    handle_warranty_case
+    handle_warranty_case,
+    send_instruction_pdf,
+    send_faq_pdf,
+    request_contact_for_warranty,
+    process_warranty_case_contact
 )
 
 from .registration import start_registration
@@ -36,6 +39,12 @@ def handle_callback(call: CallbackQuery) -> None:
             show_warranty_cases(call)
         elif call.data.startswith("warranty_case_"):
             handle_warranty_case(call)
+        elif call.data.startswith("atwarranty_case_"):
+            handle_warranty_case(call)
+        elif call.data.startswith("request_contact_"):
+            request_contact_for_warranty(call)
+        elif call.data.startswith("instruction_pdf_"):
+            send_instruction_pdf(call)
         elif call.data.startswith("instructions_") or call.data.startswith("faq_") or call.data.startswith("warranty_"):
             show_product_info(call)
         elif call.data.startswith("category_"):
@@ -54,12 +63,12 @@ def handle_callback(call: CallbackQuery) -> None:
             back_to_main(call)
         elif call.data == "back_to_categories":
             back_to_categories(call)
-        elif call.data == "support_menu":
-            support_menu(call)
         elif call.data == "show_my_warranties":
             show_my_warranties(call)
         elif call.data == "send_excel":
             send_excel_to_admin(call)
+        elif call.data.startswith('faq_pdf_'):
+            send_faq_pdf(call, bot)
         else:
             print(f"[WARNING] Неизвестный callback_data: {call.data}")
             logger.warning(f"[WARNING] Неизвестный callback_data: {call.data}")
