@@ -11,6 +11,7 @@ from .registration import start_registration
 from bot.models import goods, goods_category, User, AdminContact
 from bot.apis import analyze_screenshot
 from bot.apis.ai import OpenAIAPI
+from functools import wraps
 import json
 import os
 import logging
@@ -29,6 +30,25 @@ manual_confirmation_state = {}
 
 logger = logging.getLogger(__name__)
 
+
+def disable_ai_mode(func):
+    """Декоратор для отключения режима ИИ при вызове функции"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # Получаем объект call из аргументов
+        call = next((arg for arg in args if isinstance(arg, CallbackQuery)), None)
+        if call and not call.data.startswith('support_'):
+            try:
+                user = User.objects.get(telegram_id=call.message.chat.id)
+                user.is_ai = False
+                user.chat_history = {}
+                user.save()
+            except User.DoesNotExist:
+                pass
+        return func(*args, **kwargs)
+    return wrapper
+
+@disable_ai_mode
 def start(message: Message) -> None:
     # Отключаем режим ИИ при команде /start
     try:
@@ -40,6 +60,7 @@ def start(message: Message) -> None:
         pass
     start_registration(message)
 
+@disable_ai_mode
 def menu_call(call: CallbackQuery) -> None:
     """Обработчик для возврата в главное меню"""
     try:
@@ -58,6 +79,7 @@ def menu_call(call: CallbackQuery) -> None:
         reply_markup=main_markup
     )
 
+@disable_ai_mode
 def menu_m(message: Message) -> None:
     """Обработчик для отправки главного меню по текстовой команде"""
     user = User.objects.filter(telegram_id=message.chat.id).first()
@@ -73,6 +95,7 @@ def menu_m(message: Message) -> None:
         reply_markup=main_markup
     )
 
+@disable_ai_mode
 def show_categories(chat_id: int, message_id: int = None) -> None:
     """Показать все категории товаров"""
     markup = InlineKeyboardMarkup()
@@ -140,6 +163,7 @@ def show_categories(chat_id: int, message_id: int = None) -> None:
                 reply_markup=error_markup
             )
 
+@disable_ai_mode
 def show_category_products(call: CallbackQuery) -> None:
     """Показывает список товаров в категории"""
     try:
@@ -202,6 +226,8 @@ def show_category_products(call: CallbackQuery) -> None:
             reply_markup=error_markup
         )
 
+
+@disable_ai_mode
 def delete_previous_messages(chat_id: int, user: User) -> None:
     """Удаляет предыдущие сообщения пользователя"""
     if user.messages_count > 0:
@@ -214,6 +240,8 @@ def delete_previous_messages(chat_id: int, user: User) -> None:
         user.last_message_id = None
         user.save()
 
+
+@disable_ai_mode
 def show_product_menu(call: CallbackQuery) -> None:
     """Показывает меню товара"""
     try:
@@ -302,6 +330,7 @@ def show_product_menu(call: CallbackQuery) -> None:
                 reply_markup=error_markup
             )
 
+@disable_ai_mode
 def send_long_message(chat_id: int, text: str, message_id: int = None, markup=None) -> None:
     """Отправка длинного текста с разбивкой на сообщения"""
     # Максимальная длина одного сообщения
@@ -382,12 +411,15 @@ def send_long_message(chat_id: int, text: str, message_id: int = None, markup=No
                         reply_markup=markup if i == len(parts) - 1 else None
                     )
 
+
+@disable_ai_mode
 def reset_user_messages(user: User) -> None:
     """Сбрасывает счетчик сообщений пользователя"""
     user.messages_count = 0
     user.last_message_id = None
     user.save()
 
+@disable_ai_mode
 def show_product_info(call: CallbackQuery) -> None:
     """Показывает информацию о товаре (инструкция/FAQ/гарантия)"""
     try:
@@ -660,6 +692,8 @@ def show_product_info(call: CallbackQuery) -> None:
             reply_markup=error_markup
         )
 
+
+@disable_ai_mode
 def activate_warranty(call: CallbackQuery) -> None:
     """Начинает процесс активации расширенной гарантии"""
     try:
@@ -697,6 +731,7 @@ def activate_warranty(call: CallbackQuery) -> None:
         logger.error(f"[ERROR] Ошибка при запуске активации гарантии: {e}")
         bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
 
+@disable_ai_mode
 def cancel_warranty_activation(call: CallbackQuery) -> None:
     """Отменяет процесс активации расширенной гарантии"""
     try:
@@ -723,6 +758,7 @@ def cancel_warranty_activation(call: CallbackQuery) -> None:
         logger.error(f"[ERROR] Ошибка при отмене активации: {e}")
         bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
 
+@disable_ai_mode
 def check_screenshot(message: Message) -> None:
     """Проверяет скриншот отзыва для активации расширенной гарантии"""
     try:
@@ -941,6 +977,8 @@ def check_screenshot(message: Message) -> None:
             text=f"Произошла ошибка при обработке фотографии. Пожалуйста, попробуйте еще раз."
         )
 
+
+@disable_ai_mode
 def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=None, review_date=None):
     """Активирует расширенную гарантию для пользователя"""
     try:
@@ -1069,6 +1107,7 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
             text=f"Произошла ошибка при активации гарантии: {e}"
         )
 
+@disable_ai_mode
 def confirm_review(call: CallbackQuery) -> None:
     """Обработчик для ручного подтверждения скриншота с отзывом"""
     try:
@@ -1101,6 +1140,8 @@ def confirm_review(call: CallbackQuery) -> None:
             text="Произошла ошибка. Пожалуйста, попробуйте снова."
         )
 
+
+@disable_ai_mode
 def cancel_review(call: CallbackQuery) -> None:
     """Обработчик для отмены ручного подтверждения скриншота"""
     try:
@@ -1134,7 +1175,7 @@ def cancel_review(call: CallbackQuery) -> None:
         )
 
 
-
+@disable_ai_mode
 def show_my_warranties(call: CallbackQuery) -> None:
     """Показывает список товаров с активированной расширенной гарантией"""
     try:
@@ -1289,8 +1330,16 @@ def chat_with_ai(message: Message) -> None:
         
         # Проверяем, активирован ли режим общения с ИИ
         if not user.is_ai:
-            print(f"[LOG] Пользователь {message.chat.id} не в режиме AI")
-            logger.info(f"[LOG] Пользователь {message.chat.id} не в режиме AI")
+            # Если пользователь не в режиме AI, отправляем сообщение о необходимости нажать кнопку поддержки
+            markup = InlineKeyboardMarkup()
+            support_btn = InlineKeyboardButton("💬 Поддержка", callback_data="support_menu")
+            markup.add(support_btn)
+            
+            bot.send_message(
+                chat_id=message.chat.id,
+                text="Для общения с поддержкой, пожалуйста, нажмите кнопку 'Поддержка' в главном меню.",
+                reply_markup=markup
+            )
             return
             
         # Проверяем количество уже отправленных сообщений
@@ -1331,6 +1380,16 @@ def chat_with_ai(message: Message) -> None:
         
         # Получаем ответ от ИИ
         ai = OpenAIAPI()
+        
+        # Если есть информация о товаре, добавляем её в контекст
+        product_id = chat_history.get('product_id')
+        if product_id:
+            try:
+                product = goods.objects.get(id=product_id)
+                message.text = f"Вопрос о товаре {product.name}: {message.text}"
+            except goods.DoesNotExist:
+                pass
+        
         response = ai.get_response(message.chat.id, message.text)
         
         if response and 'message' in response:
@@ -1364,6 +1423,7 @@ def chat_with_ai(message: Message) -> None:
         print(f"[ERROR] Ошибка в chat_with_ai: {e}")
         logger.error(f"[ERROR] Ошибка в chat_with_ai: {e}")
 
+@disable_ai_mode
 def back_to_main(call: CallbackQuery) -> None:
     """Обработчик для возврата в главное меню"""
     try:
@@ -1383,6 +1443,7 @@ def back_to_main(call: CallbackQuery) -> None:
     except User.DoesNotExist:
         pass
 
+@disable_ai_mode
 def back_to_categories(call: CallbackQuery) -> None:
     """Обработчик для возврата к списку категорий"""
     try:
@@ -1394,21 +1455,52 @@ def back_to_categories(call: CallbackQuery) -> None:
     
     show_categories(call.message.chat.id, call.message.message_id)
 
+@disable_ai_mode
 def support_menu(call: CallbackQuery) -> None:
-    """Обработчик для отображения меню поддержки"""
-    # Включаем режим ИИ для данного пользователя
-    user = User.objects.get(telegram_id=call.message.chat.id)
-    user.is_ai = True
-    user.chat_history = {}  # Сбрасываем историю чата
-    user.save()
-    
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=SUPPORT_TEXT,
-        reply_markup=back_to_main_markup
-    )
+    """Обработчик для меню поддержки"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        user.is_ai = True
+        user.save()
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=SUPPORT_TEXT,
+            reply_markup=back_to_main_markup
+        )
+    except User.DoesNotExist:
+        bot.answer_callback_query(call.id, "Пользователь не найден. Пожалуйста, начните с команды /start")
 
+@disable_ai_mode
+@bot.callback_query_handler(func=lambda call: call.data.startswith('support_'))
+def product_support(call: CallbackQuery) -> None:
+    """Обработчик для кнопки поддержки в меню товара"""
+    try:
+        # Проверяем, не является ли это кнопкой поддержки из главного меню
+        if call.data == 'support_menu':
+            support_menu(call)
+            return
+            
+        product_id = int(call.data.split('_')[1])
+        product = goods.objects.get(id=product_id)
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        
+        # Включаем режим ИИ для общения с поддержкой
+        user.is_ai = True
+        user.save()
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"Вы общаетесь с поддержкой по товару: {product.name}\n\n{SUPPORT_TEXT}",
+            reply_markup=back_to_main_markup
+        )
+    except (goods.DoesNotExist, User.DoesNotExist, ValueError) as e:
+        bot.answer_callback_query(call.id, "Произошла ошибка. Пожалуйста, попробуйте позже.")
+        logger.error(f"Ошибка в product_support: {e}")
+
+@disable_ai_mode
 def admin_panel(call: CallbackQuery) -> None:
     """Показывает админ-панель"""
     try:
@@ -1440,6 +1532,8 @@ def admin_panel(call: CallbackQuery) -> None:
             text="Произошла ошибка. Попробуйте позже."
         )
 
+
+@disable_ai_mode
 def send_excel_to_admin(call: CallbackQuery) -> None:
     """Отправляет Excel-таблицу админу"""
     try:
@@ -1491,6 +1585,8 @@ def send_excel_to_admin(call: CallbackQuery) -> None:
             text=f"❌ Произошла ошибка при отправке таблицы: {str(e)}"
         )
 
+
+@disable_ai_mode
 @bot.message_handler(func=lambda message: message.text == "🔧 Админ-панель")
 def handle_admin_panel(message: Message) -> None:
     """Обработчик кнопки админ-панели"""
@@ -1522,6 +1618,8 @@ def handle_admin_panel(message: Message) -> None:
             "Произошла ошибка. Попробуйте позже."
         )
 
+
+@disable_ai_mode
 @bot.message_handler(commands=['admin'])
 def admin_command(message: Message) -> None:
     """Обработчик команды /admin"""
@@ -1553,6 +1651,7 @@ def admin_command(message: Message) -> None:
             "Произошла ошибка. Попробуйте позже."
         )
 
+@disable_ai_mode
 def show_warranty_cases(call: CallbackQuery) -> None:
     user = User.objects.get(telegram_id=call.from_user.id)
     warranty_data = user.warranty_data or {}
@@ -1595,6 +1694,7 @@ def show_warranty_cases(call: CallbackQuery) -> None:
         reply_markup=markup
     )
 
+@disable_ai_mode
 def handle_warranty_case(call: CallbackQuery) -> None:
     """Обрабатывает выбор товара для гарантийного случая"""
     try:
