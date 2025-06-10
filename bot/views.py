@@ -6,7 +6,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from telebot.apihelper import ApiTelegramException
-from telebot.types import Update
+from telebot.types import Update, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot import bot, logger
 from bot.cron import reset_screenshot_counters
@@ -19,7 +19,7 @@ from bot.handlers import (
     chat_with_ai, activate_warranty, back_to_categories,
     cancel_warranty_activation, show_my_warranties, check_screenshot,
     confirm_review, cancel_review, send_excel_to_admin, admin_command,
-    show_warranty_handler
+    show_warranty_handler, show_warranty_cases, handle_warranty_case
 )
 
 
@@ -116,3 +116,9 @@ cancel_review_handler = bot.callback_query_handler(lambda c: c.data.startswith("
 
 # Обработчики для админ-панели
 admin_excel_handler = bot.callback_query_handler(lambda c: c.data == "admin_excel")(send_excel_to_admin)
+
+# Обработчики для гарантийных случаев
+warranty_cases_handler = bot.callback_query_handler(lambda c: c.data == "warranty_cases")(show_warranty_cases)
+warranty_case_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_case_"))(handle_warranty_case)
+
+

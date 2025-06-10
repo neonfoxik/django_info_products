@@ -5,6 +5,7 @@ from telebot.types import (
     KeyboardButton,
 )
 from django.conf import settings
+from django.contrib.auth.models import User
 
 # Главное меню
 main_markup = InlineKeyboardMarkup()
@@ -52,13 +53,9 @@ def get_screenshot_markup(product_id):
 def get_main_markup(user_id: int) -> ReplyKeyboardMarkup:
     """Создает главное меню с учетом роли пользователя"""
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    
-    # Базовые кнопки для всех пользователей
-    markup.add(KeyboardButton("📱 Товары"))
-    markup.add(KeyboardButton("📞 Поддержка"))
-    
-    # Добавляем кнопку админ-панели только для админа
-    if str(user_id) == str(settings.OWNER_ID):
-        markup.add(KeyboardButton("🔧 Админ-панель"))
-    
+    markup.row("📱 Каталог товаров")
+    markup.row("🛡️ Мои гарантии", "🔧 Гарантийный случай")
+    markup.row("💬 Поддержка")
+    if User.objects.get(telegram_id=user_id).is_admin:
+        markup.row("🔧 Админ-панель")
     return markup
