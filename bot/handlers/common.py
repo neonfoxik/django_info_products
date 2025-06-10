@@ -10,6 +10,7 @@ from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_mark
 from .registration import start_registration
 from bot.models import goods, goods_category, User, AdminContact
 from bot.apis import analyze_screenshot
+from bot.apis.ai import OpenAIAPI
 import json
 import os
 import logging
@@ -49,9 +50,10 @@ def menu_call(call: CallbackQuery) -> None:
     except User.DoesNotExist:
         pass
 
-    # Отправляем новое сообщение с главным меню
-    bot.send_message(
+    # Редактируем текущее сообщение на главное меню
+    bot.edit_message_text(
         chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
         text=MAIN_TEXT,
         reply_markup=main_markup
     )
@@ -139,9 +141,12 @@ def show_categories(chat_id: int, message_id: int = None) -> None:
             )
 
 def show_category_products(call: CallbackQuery) -> None:
-    """Показать товары в выбранной категории"""
+    """Показывает список товаров в категории"""
     try:
-        category_id = int(call.data.split('_')[1])
+        parts = call.data.split('_')
+        if len(parts) != 2:
+            raise ValueError("Неверный формат callback_data")
+        category_id = int(parts[1])
         
         try:
             category = goods_category.objects.get(id=category_id)
@@ -210,9 +215,12 @@ def delete_previous_messages(chat_id: int, user: User) -> None:
         user.save()
 
 def show_product_menu(call: CallbackQuery) -> None:
-    """Показать меню конкретного товара"""
+    """Показывает меню товара"""
     try:
-        product_id = int(call.data.split('_')[1])
+        parts = call.data.split('_')
+        if len(parts) != 2:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[1])
         
         try:
             user = User.objects.get(telegram_id=call.message.chat.id)
@@ -383,34 +391,32 @@ def reset_user_messages(user: User) -> None:
 def show_product_info(call: CallbackQuery) -> None:
     """Показывает информацию о товаре (инструкция/FAQ/гарантия)"""
     try:
-        info_type, product_id = call.data.split('_')
-        product_id = int(product_id)
-        
-        try:
-            product = goods.objects.get(id=product_id)
-        except goods.DoesNotExist:
-            # Если товар не найден, возвращаемся к списку категорий
-            bot.answer_callback_query(call.id, "Товар не найден. Возможно, он был удален.")
-            show_categories(call.message.chat.id, call.message.message_id)
-            return
-        
-        # Получаем информацию о расширенной гарантии
-        try:
-            user = User.objects.get(telegram_id=call.message.chat.id)
-            warranty_data = user.warranty_data or {}
+        # Получаем тип информации и ID товара из callback_data
+        parts = call.data.split('_')
+        if len(parts) < 2:
+            raise ValueError("Неверный формат callback_data")
             
-            if isinstance(warranty_data, str):
-                warranty_data = json.loads(warranty_data)
-            
-            # Проверяем, есть ли расширенная гарантия на данный товар
-            product_data = warranty_data.get(str(product_id), {})
-            has_warranty = product_data.get('is_active', False)
-        except User.DoesNotExist:
-            has_warranty = False
+        info_type = parts[0]
+        product_id = int(parts[1])
         
-        # Создаем клавиатуру с учетом наличия расширенной гарантии
-        markup = get_warranty_markup_with_extended(product_id, has_warranty)
+        # Проверяем, что тип информации валидный
+        if info_type not in ['instructions', 'faq', 'warranty']:
+            raise ValueError(f"Неизвестный тип информации: {info_type}")
         
+        product = goods.objects.get(id=product_id)
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        warranty_data = user.warranty_data or {}
+        product_data = warranty_data.get(str(product_id), {})
+        has_warranty = product_data.get('is_active', False)
+
+        # Только для раздела "Гарантия" показываем кнопку активации
+        if info_type == "warranty":
+            markup = get_warranty_markup_with_extended(product_id, has_warranty)
+        else:
+            # Для других разделов — только кнопка назад к товару
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
+
         # Удаляем предыдущее сообщение
         try:
             bot.delete_message(
@@ -655,9 +661,12 @@ def show_product_info(call: CallbackQuery) -> None:
         )
 
 def activate_warranty(call: CallbackQuery) -> None:
-    """Запускает процесс активации расширенной гарантии"""
+    """Начинает процесс активации расширенной гарантии"""
     try:
-        product_id = int(call.data.split('_')[2])
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[2])
         print(f"[LOG] Запрос на активацию гарантии от пользователя {call.message.chat.id} для товара {product_id}")
         logger.info(f"[LOG] Запрос на активацию гарантии от пользователя {call.message.chat.id} для товара {product_id}")
         
@@ -691,7 +700,10 @@ def activate_warranty(call: CallbackQuery) -> None:
 def cancel_warranty_activation(call: CallbackQuery) -> None:
     """Отменяет процесс активации расширенной гарантии"""
     try:
-        product_id = int(call.data.split('_')[2])
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[2])
         print(f"[LOG] Отмена активации гарантии пользователем {call.message.chat.id} для товара {product_id}")
         logger.info(f"[LOG] Отмена активации гарантии пользователем {call.message.chat.id} для товара {product_id}")
         
@@ -1060,7 +1072,10 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
 def confirm_review(call: CallbackQuery) -> None:
     """Обработчик для ручного подтверждения скриншота с отзывом"""
     try:
-        product_id = int(call.data.split('_')[2])
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[2])
         chat_id = call.message.chat.id
         
         print(f"[LOG] Пользователь {chat_id} подтвердил скриншот отзыва для товара {product_id}")
@@ -1089,7 +1104,10 @@ def confirm_review(call: CallbackQuery) -> None:
 def cancel_review(call: CallbackQuery) -> None:
     """Обработчик для отмены ручного подтверждения скриншота"""
     try:
-        product_id = int(call.data.split('_')[2])
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[2])
         chat_id = call.message.chat.id
         
         print(f"[LOG] Пользователь {chat_id} отменил подтверждение скриншота для товара {product_id}")
@@ -1115,48 +1133,7 @@ def cancel_review(call: CallbackQuery) -> None:
             text="Произошла ошибка. Пожалуйста, попробуйте снова."
         )
 
-def show_warranty_handler(call: CallbackQuery) -> None:
-    try:
-        # Получаем активный контакт администратора
-        admin_contact = AdminContact.objects.filter(is_active=True).first()
-        if not admin_contact:
-            admin_contact_text = "Для связи с администратором напишите на email: admin@example.com"
-        else:
-            admin_contact_text = admin_contact.admin_contact
-            
-        text = (
-            "🛠️ Гарантийный случай\n\n"
-            "Если у вас возникла проблема с товаром, которая подпадает под гарантийный случай, "
-            "пожалуйста, свяжитесь с администратором:\n\n"
-            f"{admin_contact_text}"
-        )
-            
-        markup = InlineKeyboardMarkup()
-        back_btn = InlineKeyboardButton("⬅️ Назад к гарантиям", callback_data="my_warranties")
-        markup.add(back_btn)
-            
-        # Удаляем предыдущее сообщение
-        try:
-            bot.delete_message(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id
-            )
-        except Exception as e:
-            print(f"[ERROR] Ошибка при удалении сообщения: {e}")
-            logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
-            
-        # Отправляем новое сообщение
-        bot.send_message(
-            chat_id=call.message.chat.id,
-            text=text,
-            reply_markup=markup
-        )
-    except Exception as e:
-        logger.error(f"[ERROR] Ошибка при показе гарантийного случая: {e}")
-        bot.answer_callback_query(
-            callback_query_id=call.id,
-            text="Произошла ошибка. Пожалуйста, попробуйте снова."
-        )
+
 
 def show_my_warranties(call: CallbackQuery) -> None:
     """Показывает список товаров с активированной расширенной гарантией"""
@@ -1250,7 +1227,7 @@ def show_my_warranties(call: CallbackQuery) -> None:
             user.save()
         
         markup = InlineKeyboardMarkup()
-        warranty_case_btn = InlineKeyboardButton("🛠️ Гарантийный случай", callback_data="warranty_case")
+        warranty_case_btn = InlineKeyboardButton("🛠️ Гарантийный случай", callback_data="warranty_cases")
         back_btn = InlineKeyboardButton("⬅️ Главное меню", callback_data="back_to_main")
         markup.add(warranty_case_btn)
         markup.add(back_btn)
@@ -1291,18 +1268,24 @@ def show_my_warranties(call: CallbackQuery) -> None:
 def chat_with_ai(message: Message) -> None:
     """Обработчик для общения с ИИ"""
     try:
-        # Проверяем, не является ли сообщение скриншотом для активации гарантии
-        if message.photo:
-            print(f"[LOG] Получена фотография от пользователя {message.chat.id}")
-            logger.info(f"[LOG] Получена фотография от пользователя {message.chat.id}")
-            
-            # Принудительно вызываем обработку скриншота, если пришло фото
-            check_screenshot(message)
-            return
-        
-        from bot.apis.ai import OpenAIAPI
-    
         user = User.objects.get(telegram_id=message.chat.id)
+        
+        # Проверяем, не является ли сообщение командой или кнопкой меню
+        if message.text == "📱 Каталог товаров":
+            show_categories(message.chat.id)
+            return
+        elif message.text == "🛡️ Мои гарантии":
+            show_my_warranties(CallbackQuery(message=message))
+            return
+        elif message.text == "🔧 Гарантийный случай":
+            show_warranty_cases(CallbackQuery(message=message))
+            return
+        elif message.text == "💬 Поддержка":
+            support_menu(CallbackQuery(message=message))
+            return
+        elif message.text == "🔧 Админ-панель":
+            handle_admin_panel(message)
+            return
         
         # Проверяем, активирован ли режим общения с ИИ
         if not user.is_ai:
@@ -1569,3 +1552,106 @@ def admin_command(message: Message) -> None:
             message,
             "Произошла ошибка. Попробуйте позже."
         )
+
+def show_warranty_cases(call: CallbackQuery) -> None:
+    user = User.objects.get(telegram_id=call.from_user.id)
+    warranty_data = user.warranty_data or {}
+    # Собираем все активные гарантии
+    active_warranties = []
+    for product_id, data in warranty_data.items():
+        if data.get('is_active', False):
+            try:
+                product = goods.objects.get(id=product_id)
+                info = data.get('info', {})
+                active_warranties.append({
+                    'id': product.id,
+                    'name': product.name,
+                    'activation_date': info.get('activation_date'),
+                    'end_date': info.get('end_date'),
+                    'warranty_period': info.get('warranty_period'),
+                })
+            except goods.DoesNotExist:
+                continue
+    if not active_warranties:
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="У вас нет активных расширенных гарантий.",
+            reply_markup=back_to_main_markup
+        )
+        return
+
+    markup = InlineKeyboardMarkup(row_width=1)
+    for w in active_warranties:
+        markup.add(InlineKeyboardButton(
+            text=f"{w['name']}",
+            callback_data=f"atwarranty_case_{w['id']}"
+        ))
+    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text="Если у вас возникла проблема с товаром, то выберите с каким из выпадающего списка.",
+        reply_markup=markup
+    )
+
+def handle_warranty_case(call: CallbackQuery) -> None:
+    """Обрабатывает выбор товара для гарантийного случая"""
+    try:
+        # Получаем ID товара из callback_data
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+            
+        product_id = int(parts[2])
+        user = User.objects.get(telegram_id=call.from_user.id)
+        product = goods.objects.get(id=product_id)
+        
+        # Получаем контакт администратора
+        admin_contact = AdminContact.objects.filter(is_active=True).first()
+        
+        # Отправляем уведомление админам
+        admin_users = User.objects.filter(is_admin=True)
+        for admin in admin_users:
+            bot.send_message(
+                chat_id=admin.telegram_id,
+                text=f"⚠️ Новый гарантийный случай!\n"
+                     f"Пользователь: {user.user_name}\n"
+                     f"Товар: {product.name}\n"
+                     f"ID пользователя: {user.telegram_id}\n"
+                     f"TG us пользователя: @{call.from_user.username}"
+            )
+        
+        # Отправляем сообщение пользователю
+        if call.from_user.username:
+            message = (
+                f"✅ Ваша заявка на гарантийный случай принята!\n"
+                f"Администратор скоро свяжется с вами.\n\n"
+                f"Контакт администратора:\n{admin_contact.admin_contact if admin_contact else 'Не указан'}"
+            )
+        else:
+            message = (
+                f"❌ Мы не можем связаться с вами, так как у вас не указан Telegram ID.\n"
+                f"Пожалуйста, свяжитесь с администратором самостоятельно:\n\n"
+                f"{admin_contact.admin_contact if admin_contact else 'Не указан'}"
+            )
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("◀️ Назад", callback_data="back_to_main"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=message,
+            reply_markup=markup
+        )
+        
+    except (ValueError, goods.DoesNotExist) as e:
+        print(f"[ERROR] Ошибка при обработке гарантийного случая: {e}")
+        logger.error(f"[ERROR] Ошибка при обработке гарантийного случая: {e}")
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
+        )
+
+

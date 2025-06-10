@@ -186,10 +186,6 @@ class goods(models.Model):
         verbose_name='Срок расширенной гарантии (в годах)',
         default=1.0
     )
-    is_returned = models.BooleanField(
-        default=False,
-        verbose_name='Товар возвращен'
-    )
 
     def __str__(self):
         return str(self.name)
@@ -216,3 +212,7 @@ class goods(models.Model):
     @property
     def primary_image(self):
         return self.images.filter(is_primary=True).first()
+
+    @property
+    def is_returned(self):
+        return False
