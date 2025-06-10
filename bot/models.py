@@ -119,16 +119,14 @@ class FAQ(models.Model):
     title = models.CharField(
         max_length=255,
         verbose_name='Название FAQ',
-        blank=False,
-        null=False,
-        help_text='Обязательное поле. Введите название FAQ.'
+        help_text='Введите название FAQ.'
     )
     pdf_file = models.FileField(
         upload_to='faq/',
         verbose_name='PDF файл FAQ',
-        blank=False,
-        null=False,
-        help_text='Обязательное поле. Загрузите PDF файл.'
+        blank=True,
+        null=True,
+        help_text='Загрузите PDF файл.'
     )
     description = models.TextField(
         verbose_name='Описание',
@@ -153,19 +151,6 @@ class FAQ(models.Model):
         auto_now=True,
         verbose_name='Дата обновления'
     )
-
-    def clean(self):
-        """Валидация модели"""
-        if not self.title or not self.title.strip():
-            raise ValidationError({'title': 'Название FAQ не может быть пустым.'})
-        
-        if not self.pdf_file:
-            raise ValidationError({'pdf_file': 'PDF файл обязателен для FAQ.'})
-
-    def save(self, *args, **kwargs):
-        """Переопределяем save для вызова clean"""
-        self.full_clean()
-        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.title} - {self.product.name}"

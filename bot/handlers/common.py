@@ -428,6 +428,16 @@ def reset_user_messages(user: User) -> None:
 def show_product_info(call: CallbackQuery) -> None:
     """Показывает информацию о товаре (инструкция/FAQ/гарантия)"""
     try:
+        # Специальная обработка для FAQ PDF
+        if call.data.startswith('faq_pdf_'):
+            send_faq_pdf(call, bot)
+            return
+        
+        # Специальная обработка для Instruction PDF
+        if call.data.startswith('instruction_pdf_'):
+            send_instruction_pdf(call, bot)
+            return
+        
         # Получаем тип информации и ID товара из callback_data
         parts = call.data.split('_')
         if len(parts) < 2:
@@ -1981,6 +1991,7 @@ def send_instruction_pdf(call: CallbackQuery, bot: TeleBot) -> None:
             text="Ошибка: Инструкция не найдена."
         )
 
+@disable_ai_mode
 def send_faq_pdf(call: CallbackQuery, bot: TeleBot) -> None:
     """Отправляет PDF файл FAQ"""
     try:
