@@ -140,9 +140,12 @@ def show_categories(chat_id: int, message_id: int = None) -> None:
             )
 
 def show_category_products(call: CallbackQuery) -> None:
-    """Показать товары в выбранной категории"""
+    """Показывает список товаров в категории"""
     try:
-        category_id = int(call.data.split('_')[1])
+        parts = call.data.split('_')
+        if len(parts) != 2:
+            raise ValueError("Неверный формат callback_data")
+        category_id = int(parts[1])
         
         try:
             category = goods_category.objects.get(id=category_id)
@@ -211,9 +214,12 @@ def delete_previous_messages(chat_id: int, user: User) -> None:
         user.save()
 
 def show_product_menu(call: CallbackQuery) -> None:
-    """Показать меню конкретного товара"""
+    """Показывает меню товара"""
     try:
-        product_id = int(call.data.split('_')[1])
+        parts = call.data.split('_')
+        if len(parts) != 2:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[1])
         
         try:
             user = User.objects.get(telegram_id=call.message.chat.id)
@@ -384,8 +390,18 @@ def reset_user_messages(user: User) -> None:
 def show_product_info(call: CallbackQuery) -> None:
     """Показывает информацию о товаре (инструкция/FAQ/гарантия)"""
     try:
-        info_type, product_id = call.data.split('_')
-        product_id = int(product_id)
+        # Получаем тип информации и ID товара из callback_data
+        parts = call.data.split('_')
+        if len(parts) < 2:
+            raise ValueError("Неверный формат callback_data")
+            
+        info_type = parts[0]
+        product_id = int(parts[1])
+        
+        # Проверяем, что тип информации валидный
+        if info_type not in ['instructions', 'faq', 'warranty']:
+            raise ValueError(f"Неизвестный тип информации: {info_type}")
+        
         product = goods.objects.get(id=product_id)
         user = User.objects.get(telegram_id=call.message.chat.id)
         warranty_data = user.warranty_data or {}
@@ -644,9 +660,12 @@ def show_product_info(call: CallbackQuery) -> None:
         )
 
 def activate_warranty(call: CallbackQuery) -> None:
-    """Запускает процесс активации расширенной гарантии"""
+    """Начинает процесс активации расширенной гарантии"""
     try:
-        product_id = int(call.data.split('_')[2])
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[2])
         print(f"[LOG] Запрос на активацию гарантии от пользователя {call.message.chat.id} для товара {product_id}")
         logger.info(f"[LOG] Запрос на активацию гарантии от пользователя {call.message.chat.id} для товара {product_id}")
         
@@ -680,7 +699,10 @@ def activate_warranty(call: CallbackQuery) -> None:
 def cancel_warranty_activation(call: CallbackQuery) -> None:
     """Отменяет процесс активации расширенной гарантии"""
     try:
-        product_id = int(call.data.split('_')[2])
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[2])
         print(f"[LOG] Отмена активации гарантии пользователем {call.message.chat.id} для товара {product_id}")
         logger.info(f"[LOG] Отмена активации гарантии пользователем {call.message.chat.id} для товара {product_id}")
         
@@ -1049,7 +1071,10 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
 def confirm_review(call: CallbackQuery) -> None:
     """Обработчик для ручного подтверждения скриншота с отзывом"""
     try:
-        product_id = int(call.data.split('_')[2])
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[2])
         chat_id = call.message.chat.id
         
         print(f"[LOG] Пользователь {chat_id} подтвердил скриншот отзыва для товара {product_id}")
@@ -1078,7 +1103,10 @@ def confirm_review(call: CallbackQuery) -> None:
 def cancel_review(call: CallbackQuery) -> None:
     """Обработчик для отмены ручного подтверждения скриншота"""
     try:
-        product_id = int(call.data.split('_')[2])
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+        product_id = int(parts[2])
         chat_id = call.message.chat.id
         
         print(f"[LOG] Пользователь {chat_id} отменил подтверждение скриншота для товара {product_id}")
@@ -1104,48 +1132,7 @@ def cancel_review(call: CallbackQuery) -> None:
             text="Произошла ошибка. Пожалуйста, попробуйте снова."
         )
 
-def show_warranty_handler(call: CallbackQuery) -> None:
-    try:
-        # Получаем активный контакт администратора
-        admin_contact = AdminContact.objects.filter(is_active=True).first()
-        if not admin_contact:
-            admin_contact_text = "Для связи с администратором напишите на email: admin@example.com"
-        else:
-            admin_contact_text = admin_contact.admin_contact
-            
-        text = (
-            "🛠️ Гарантийный случай\n\n"
-            "Если у вас возникла проблема с товаром, которая подпадает под гарантийный случай, "
-            "пожалуйста, свяжитесь с администратором:\n\n"
-            f"{admin_contact_text}"
-        )
-            
-        markup = InlineKeyboardMarkup()
-        back_btn = InlineKeyboardButton("⬅️ Назад к гарантиям", callback_data="my_warranties")
-        markup.add(back_btn)
-            
-        # Удаляем предыдущее сообщение
-        try:
-            bot.delete_message(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id
-            )
-        except Exception as e:
-            print(f"[ERROR] Ошибка при удалении сообщения: {e}")
-            logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
-            
-        # Отправляем новое сообщение
-        bot.send_message(
-            chat_id=call.message.chat.id,
-            text=text,
-            reply_markup=markup
-        )
-    except Exception as e:
-        logger.error(f"[ERROR] Ошибка при показе гарантийного случая: {e}")
-        bot.answer_callback_query(
-            callback_query_id=call.id,
-            text="Произошла ошибка. Пожалуйста, попробуйте снова."
-        )
+
 
 def show_my_warranties(call: CallbackQuery) -> None:
     """Показывает список товаров с активированной расширенной гарантией"""
@@ -1239,7 +1226,7 @@ def show_my_warranties(call: CallbackQuery) -> None:
             user.save()
         
         markup = InlineKeyboardMarkup()
-        warranty_case_btn = InlineKeyboardButton("🛠️ Гарантийный случай", callback_data="warranty_case")
+        warranty_case_btn = InlineKeyboardButton("🛠️ Гарантийный случай", callback_data="warranty_cases")
         back_btn = InlineKeyboardButton("⬅️ Главное меню", callback_data="back_to_main")
         markup.add(warranty_case_btn)
         markup.add(back_btn)
@@ -1597,22 +1584,26 @@ def show_warranty_cases(call: CallbackQuery) -> None:
     for w in active_warranties:
         markup.add(InlineKeyboardButton(
             text=f"{w['name']}",
-            callback_data=f"warranty_case_{w['id']}"
+            callback_data=f"atwarranty_case_{w['id']}"
         ))
     markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
-        text="Выберите товар для оформления гарантийного случая:",
+        text="Если у вас возникла проблема с товаром, то выберите с каким из выпадающего списка.",
         reply_markup=markup
     )
 
 def handle_warranty_case(call: CallbackQuery) -> None:
     """Обрабатывает выбор товара для гарантийного случая"""
-    product_id = call.data.split('_')[-1]
-    user = User.objects.get(telegram_id=call.from_user.id)
-    
     try:
+        # Получаем ID товара из callback_data
+        parts = call.data.split('_')
+        if len(parts) != 3:
+            raise ValueError("Неверный формат callback_data")
+            
+        product_id = int(parts[2])
+        user = User.objects.get(telegram_id=call.from_user.id)
         product = goods.objects.get(id=product_id)
         
         # Получаем контакт администратора
@@ -1626,7 +1617,8 @@ def handle_warranty_case(call: CallbackQuery) -> None:
                 text=f"⚠️ Новый гарантийный случай!\n"
                      f"Пользователь: {user.user_name}\n"
                      f"Товар: {product.name}\n"
-                     f"ID пользователя: {user.telegram_id}"
+                     f"ID пользователя: {user.telegram_id}\n"
+                     f"TG us пользователя: @{call.from_user.username}"
             )
         
         # Отправляем сообщение пользователю
@@ -1653,7 +1645,12 @@ def handle_warranty_case(call: CallbackQuery) -> None:
             reply_markup=markup
         )
         
-    except goods.DoesNotExist:
-        bot.answer_callback_query(call.id, "Товар не найден")
+    except (ValueError, goods.DoesNotExist) as e:
+        print(f"[ERROR] Ошибка при обработке гарантийного случая: {e}")
+        logger.error(f"[ERROR] Ошибка при обработке гарантийного случая: {e}")
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
+        )
 
 

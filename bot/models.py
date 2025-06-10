@@ -212,3 +212,7 @@ class goods(models.Model):
     @property
     def primary_image(self):
         return self.images.filter(is_primary=True).first()
+
+    @property
+    def is_returned(self):
+        return False
