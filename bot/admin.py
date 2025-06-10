@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import User, goods_category, goods, ProductImage, ProductDocument, AdminContact, FAQ
 from django import forms
+from django.core.exceptions import ValidationError
 
 class UserAdmin(admin.ModelAdmin):
     list_display = ('user_name', 'is_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
@@ -28,21 +29,66 @@ class FAQInline(admin.TabularInline):
     extra = 1
     fields = ('title', 'pdf_file', 'description', 'order', 'is_active')
     ordering = ('order', 'title')
+    
+    def get_formset(self, request, obj=None, **kwargs):
+        """Добавляем валидацию для inline формы"""
+        formset = super().get_formset(request, obj, **kwargs)
+        
+        def clean(self):
+            cleaned_data = super(formset, self).clean()
+            if not cleaned_data:
+                return cleaned_data
+            
+            # Проверяем каждую форму FAQ
+            for form in self.forms:
+                if form.is_valid() and not form.cleaned_data.get('DELETE', False):
+                    title = form.cleaned_data.get('title')
+                    pdf_file = form.cleaned_data.get('pdf_file')
+                    
+                    if title and not title.strip():
+                        form.add_error('title', 'Название FAQ не может быть пустым.')
+                    
+                    if not pdf_file and not form.cleaned_data.get('id'):  # Новая запись без файла
+                        form.add_error('pdf_file', 'PDF файл обязателен для FAQ.')
+            
+            return cleaned_data
+        
+        formset.clean = clean
+        return formset
 
 class FAQAdmin(admin.ModelAdmin):
     list_display = ('title', 'product', 'order', 'is_active', 'created_at')
     list_filter = ('product', 'is_active', 'created_at')
-    search_fields = ('title', 'product__name')
+    search_fields = ('title', 'product__name', 'description')
     list_editable = ('order', 'is_active')
     ordering = ('product', 'order', 'title')
+    readonly_fields = ('created_at', 'updated_at')
+    
     fieldsets = (
-        (None, {
-            'fields': ('product', 'title', 'pdf_file', 'description')
+        ('Основная информация', {
+            'fields': ('product', 'title', 'pdf_file', 'description'),
+            'description': 'Заполните основную информацию о FAQ. Название и PDF файл обязательны.'
         }),
         ('Настройки отображения', {
-            'fields': ('order', 'is_active')
+            'fields': ('order', 'is_active'),
+            'description': 'Настройте порядок отображения и активность FAQ.'
+        }),
+        ('Системная информация', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+            'description': 'Автоматически заполняемые поля.'
         }),
     )
+    
+    def save_model(self, request, obj, form, change):
+        """Переопределяем сохранение для лучшей обработки ошибок"""
+        try:
+            super().save_model(request, obj, form, change)
+        except ValidationError as e:
+            # Добавляем ошибки валидации в форму
+            for field, errors in e.message_dict.items():
+                for error in errors:
+                    form.add_error(field, error)
 
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
@@ -80,10 +126,21 @@ class ProductDocumentInline(admin.TabularInline):
         return formset
 
 class GoodsAdmin(admin.ModelAdmin):
-    list_display = ('name', 'parent_category')
+    list_display = ('name', 'parent_category', 'extended_warranty')
     list_filter = ('parent_category',)
     search_fields = ('name',)
     inlines = [ProductImageInline, ProductDocumentInline, FAQInline]
+    
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('name', 'parent_category', 'extended_warranty')
+        }),
+        ('ИИ поддержка', {
+            'fields': ('ai_instruction',),
+            'description': 'Инструкция для ИИ при общении с пользователями по данному товару.',
+            'classes': ('collapse',)
+        }),
+    )
 
 class AdminContactAdmin(admin.ModelAdmin):
     list_display = ('admin_contact', 'support_contact', 'is_active', 'updated_at')
