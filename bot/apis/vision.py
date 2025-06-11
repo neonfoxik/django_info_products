@@ -4,7 +4,6 @@ import base64
 import dotenv
 import logging
 import re
-import json
 from io import BytesIO
 from django.conf import settings
 from telebot.types import PhotoSize
@@ -55,54 +54,19 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             base64_image = base64.b64encode(downloaded_file).decode('utf-8')
             
             # Формируем системное сообщение
-            system_message = """Ты эксперт по анализу скриншотов отзывов с маркетплейсов (Wildberries, OZON, Яндекс.Маркет и др.).
-
-ТВОЯ ЗАДАЧА: Проанализировать скриншот и определить:
-1. Точное количество желтых/золотистых звезд в рейтинге отзыва (1-5)
-2. Дату написания отзыва 
-3. Статус заказа (возврат/отмена)
-4. Количество товаров на скриншоте
-5. Соответствие товара (если предоставлено эталонное изображение)
-
-ВАЖНЫЕ ДЕТАЛИ:
-- Звезды могут быть желтыми, золотистыми или оранжевыми
-- Ищи звезды именно в разделе ОТЗЫВА, не в общем рейтинге товара
-- Игнорируй пустые/серые звезды - считай только закрашенные
-- Дата может быть в форматах: ДД.ММ.ГГГГ, ДД месяц ГГГГ, ДД/ММ/ГГГГ
-- Статусы возврата: "Возвращен", "Отменен", "Возврат", "Отмена", "Возвращено"
-- Если несколько дат - выбирай дату отзыва, а не заказа/доставки
-- Если видишь список товаров или корзину - это несколько товаров
-- Внимательно различай товары и их вариации (размер, цвет)
-
-КРИТИЧЕСКИ ВАЖНО:
-- НЕ путай общий рейтинг товара с рейтингом конкретного отзыва
-- Ищи звезды рядом с текстом отзыва или аватаром пользователя
-- Если сомневаешься в количестве звезд - укажи 0 и объясни в details
-
-ОТВЕЧАЙ СТРОГО В JSON ФОРМАТЕ:
-{
-  "stars": число_от_0_до_5,
-  "date": "ДД.ММ.ГГГГ" или null,
-  "is_returned": true/false,
-  "multiple_products": true/false,
-  "product_matches": true/false/null,
-  "confidence": число_от_0_до_100,
-  "details": "краткое_объяснение"
-}"""
-
-            user_message = """Проанализируй этот скриншот отзыва и верни результат в указанном JSON формате.
-
-ПОШАГОВЫЙ АНАЛИЗ:
-1. Найди секцию с отзывами (не общий рейтинг товара)
-2. Подсчитай закрашенные желтые/золотистые звезды в отзыве
-3. Найди дату рядом с отзывом (обычно под именем пользователя)
-4. Проверь статус заказа/товара
-5. Оцени количество разных товаров на экране
-
-Будь максимально внимательным к деталям!"""
-
+            system_message = "Определи количество желтых звезд в отзыве и дату отзыва. "
             if product_image:
-                user_message += "\n\nТакже сравни товар в отзыве с эталонным изображением товара и определи их соответствие."
+                system_message += "Также проверь, соответствует ли отзыв изображенному товару. "
+            system_message += "Если желтых звезд меньше 5, укажи точное количество. Если 5 желтых звезд, напиши '5 звезд'. "
+            system_message += "Если желтых звезд нет или это не отзыв, напиши 'нет звезд'. "
+            system_message += "Если видишь дату отзыва, укажи её в формате ДД.ММ.ГГГГ. "
+            system_message += "Если дат несколько, используй последнюю (нижнюю) дату. "
+            system_message += "Если даты нет, напиши 'нет даты'. "
+            system_message += "Если товаров несколько, напиши 'несколько товаров'. "
+            system_message += "Если товар возвращен или отменен, напиши 'товар возвращен'. "
+            if product_image:
+                system_message += "Если товар соответствует, напиши 'товар соответствует'. "
+                system_message += "Если не соответствует, напиши 'товар не соответствует'."
             
             messages = [
                 {
@@ -114,7 +78,11 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                     "content": [
                         {
                             "type": "text",
-                            "text": user_message
+                            "text": "Проанализируй отзыв и товар. Отвечай кратко: количество желтых звезд, дата в формате "
+                                    "ДД.ММ.ГГГГ или 'нет даты', и соответствие товара если указано. "
+                                    "Если товар возвращен или отменен, укажи это. "
+                                    "Если дат несколько, используй последнюю."
+                                    "Если товаров несколько, то направляй на переотправку скриншота."
                         },
                         {
                             "type": "image_url",
@@ -139,157 +107,95 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             
             # Вызываем модель с поддержкой компьютерного зрения
             response = client.chat.completions.create(
-                model="vis-qwen/qwen2.5-vl-72b-instruct",
+                model="vis-google/gemini-2.5-flash-pre-05-20",
                 messages=messages,
-                max_tokens=200,
-                temperature=0.1
+                max_tokens=100
             )
             
             answer = response.choices[0].message.content
             logger.info(f"[VISION] Получен ответ от API: {answer}")
             
-            # Парсим JSON ответ
-            try:
-                # Извлекаем JSON из ответа (на случай если есть дополнительный текст)
-                json_match = re.search(r'\{.*?\}', answer, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group()
-                else:
-                    json_str = answer
-                
-                result = json.loads(json_str)
-                
-                # Извлекаем данные из JSON ответа
-                stars_count = result.get('stars', 0)
-                review_date = result.get('date')
-                is_returned = result.get('is_returned', False)
-                has_multiple_products = result.get('multiple_products', False)
-                product_match = result.get('product_matches')
-                confidence = result.get('confidence', 0)
-                details = result.get('details', '')
-                
-                # Валидация данных
-                if not isinstance(stars_count, int) or stars_count < 0 or stars_count > 5:
-                    stars_count = 0
-                if not isinstance(confidence, int) or confidence < 0 or confidence > 100:
-                    confidence = 0 if stars_count == 0 else 80
-                
-                # Формируем сообщение в зависимости от результатов
-                message_parts = []
+            # Анализируем ответ модели
+            answer_lower = answer.lower()
+            
+            # Определяем количество звезд
+            stars_count = 0
+            if "5 звезд" in answer_lower or "5 звезды" in answer_lower:
+                stars_count = 5
+            else:
+                # Ищем число в ответе
+                stars_match = re.search(r'(\d+)', answer)
+                if stars_match:
+                    stars_count = int(stars_match.group(1))
+            
+            # Определяем дату отзыва
+            review_date = None
+            date_matches = re.findall(r'(\d{2}\.\d{2}\.\d{4})', answer)
+            if date_matches:
+                # Берем последнюю дату из списка
+                review_date = date_matches[-1]
 
-                if is_returned:
-                    message_parts.append("Товар возвращен или отменен. Расширенная гарантия недоступна.")
-                    has_5_stars = False
-                elif has_multiple_products:
-                    message_parts.append("На скриншоте обнаружено несколько товаров. Пожалуйста, отправьте скриншот только с одним товаром.")
-                    has_5_stars = False
-                elif stars_count == 5:
-                    message_parts.append("Отзыв с 5 звездами подтвержден!")
-                    has_5_stars = True
-                elif stars_count > 0:
-                    message_parts.append(f"В отзыве обнаружено {stars_count} звезд. Для получения расширенной гарантии необходимо оставить отзыв с 5 звездами.")
-                    has_5_stars = False
-                else:
-                    message_parts.append("Не удалось обнаружить звезды в отзыве. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с рейтингом.")
-                    has_5_stars = False
+            # Определяем, возвращен ли товар
+            is_returned = "товар возвращен" in answer_lower or "товар отменен" in answer_lower
 
-                if product_image and not is_returned and not has_multiple_products:
-                    if product_match is True:
-                        message_parts.append("Товар в отзыве соответствует запрошенному.")
-                    elif product_match is False:
-                        message_parts.append("Товар в отзыве не соответствует запрошенному. Пожалуйста, отправьте скриншот отзыва правильного товара.")
-                        has_5_stars = False
+            # Определяем соответствие товара
+            product_match = None
+            if product_image:
+                if "товар соответствует" in answer_lower:
+                    product_match = True
+                elif "товар не соответствует" in answer_lower:
+                    product_match = False
 
-                message = " ".join(message_parts)
-                
-                return {
-                    'success': True,
-                    'has_5_stars': has_5_stars,
-                    'message': message,
-                    'confidence': confidence,
-                    'stars_count': stars_count,
-                    'review_date': review_date,
-                    'product_match': product_match,
-                    'is_returned': is_returned,
-                    'has_multiple_products': has_multiple_products,
-                    'details': details
-                }
-                
-            except (json.JSONDecodeError, KeyError, ValueError) as e:
-                logger.warning(f"[VISION] Ошибка парсинга JSON ответа: {e}. Ответ: {answer}")
-                
-                # Фоллбэк - пытаемся парсить старым способом
-                answer_lower = answer.lower()
-                
-                # Определяем количество звезд
-                stars_count = 0
-                if "5 звезд" in answer_lower or "5 звезды" in answer_lower or '"stars": 5' in answer_lower:
-                    stars_count = 5
-                else:
-                    stars_match = re.search(r'(\d+)', answer)
-                    if stars_match:
-                        stars_count = min(int(stars_match.group(1)), 5)
-                
-                # Определяем дату отзыва
-                review_date = None
-                date_matches = re.findall(r'(\d{2}\.\d{2}\.\d{4})', answer)
-                if date_matches:
-                    review_date = date_matches[-1]
+            # Проверяем наличие нескольких товаров
+            has_multiple_products = "несколько товаров" in answer_lower
 
-                # Определяем остальные параметры
-                is_returned = any(keyword in answer_lower for keyword in ['возврат', 'отмен', 'returned', 'cancel'])
-                has_multiple_products = any(keyword in answer_lower for keyword in ['несколько товаров', 'multiple_products'])
-                
-                product_match = None
-                if product_image:
-                    if any(keyword in answer_lower for keyword in ['соответствует', 'matches": true']):
-                        product_match = True
-                    elif any(keyword in answer_lower for keyword in ['не соответствует', 'matches": false']):
-                        product_match = False
-                
-                confidence = 80 if stars_count > 0 else 0
-                details = "Использован резервный парсинг из-за ошибки JSON"
-                
-                # Формируем сообщение в зависимости от результатов
-                message_parts = []
+            # Определяем уверенность
+            confidence = 0
+            confidence_match = re.search(r'(\d{1,3})%', answer)
+            if confidence_match:
+                confidence = int(confidence_match.group(1))
+            elif stars_count > 0:
+                confidence = 80
+            
+            # Формируем сообщение в зависимости от результатов
+            message_parts = []
 
-                if is_returned:
-                    message_parts.append("Товар возвращен или отменен. Расширенная гарантия недоступна.")
-                    has_5_stars = False
-                elif has_multiple_products:
-                    message_parts.append("На скриншоте обнаружено несколько товаров. Пожалуйста, отправьте скриншот только с одним товаром.")
-                    has_5_stars = False
-                elif stars_count == 5:
-                    message_parts.append("Отзыв с 5 звездами подтвержден!")
-                    has_5_stars = True
-                elif stars_count > 0:
-                    message_parts.append(f"В отзыве обнаружено {stars_count} звезд. Для получения расширенной гарантии необходимо оставить отзыв с 5 звездами.")
-                    has_5_stars = False
-                else:
-                    message_parts.append("Не удалось обнаружить звезды в отзыве. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с рейтингом.")
+            if is_returned:
+                message_parts.append("Товар возвращен или отменен. Расширенная гарантия недоступна.")
+                has_5_stars = False
+            elif has_multiple_products:
+                message_parts.append("На скриншоте обнаружено несколько товаров. Пожалуйста, отправьте скриншот только с одним товаром.")
+                has_5_stars = False
+            elif stars_count == 5:
+                message_parts.append("Отзыв с 5 звездами подтвержден!")
+                has_5_stars = True
+            elif stars_count > 0:
+                message_parts.append(f"В отзыве обнаружено {stars_count} звезд. Для получения расширенной гарантии необходимо оставить отзыв с 5 звездами.")
+                has_5_stars = False
+            else:
+                message_parts.append("Не удалось обнаружить звезды в отзыве. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с рейтингом.")
+                has_5_stars = False
+
+            if product_image and not is_returned and not has_multiple_products:
+                if product_match is True:
+                    message_parts.append("Товар в отзыве соответствует запрошенному.")
+                elif product_match is False:
+                    message_parts.append("Товар в отзыве не соответствует запрошенному. Пожалуйста, отправьте скриншот отзыва правильного товара.")
                     has_5_stars = False
 
-                if product_image and not is_returned and not has_multiple_products:
-                    if product_match is True:
-                        message_parts.append("Товар в отзыве соответствует запрошенному.")
-                    elif product_match is False:
-                        message_parts.append("Товар в отзыве не соответствует запрошенному. Пожалуйста, отправьте скриншот отзыва правильного товара.")
-                        has_5_stars = False
-
-                message = " ".join(message_parts)
-                
-                return {
-                    'success': True,
-                    'has_5_stars': has_5_stars,
-                    'message': message,
-                    'confidence': confidence,
-                    'stars_count': stars_count,
-                    'review_date': review_date,
-                    'product_match': product_match,
-                    'is_returned': is_returned,
-                    'has_multiple_products': has_multiple_products,
-                    'details': details
-                }
+            message = " ".join(message_parts)
+            
+            return {
+                'success': True,
+                'has_5_stars': has_5_stars,
+                'message': message,
+                'confidence': confidence,
+                'stars_count': stars_count,
+                'review_date': review_date,
+                'product_match': product_match,
+                'is_returned': is_returned,
+                'has_multiple_products': has_multiple_products
+            }
             
         except Exception as e:
             logger.error(f"[VISION] Ошибка при вызове API Vision: {e}")
@@ -304,8 +210,7 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                 'review_date': None,
                 'product_match': None,
                 'is_returned': False,
-                'has_multiple_products': False,
-                'details': f"Не удалось автоматически проверить наличие 5-звездочного отзыва. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с 5 звездами и отправьте его снова или подтвердите вручную."
+                'has_multiple_products': False
             }
             
     except Exception as e:
@@ -319,6 +224,5 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             'review_date': None,
             'product_match': None,
             'is_returned': False,
-            'has_multiple_products': False,
-            'details': f"Не удалось проанализировать изображение. Пожалуйста, отправьте более четкий скриншот с 5-звездочным отзывом. Ошибка: {e}"
+            'has_multiple_products': False
         } 
