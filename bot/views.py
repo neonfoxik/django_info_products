@@ -20,7 +20,8 @@ from bot.handlers import (
     cancel_warranty_activation, show_my_warranties, check_screenshot,
     confirm_review, cancel_review, send_excel_to_admin, admin_command,
     show_warranty_cases, handle_warranty_case, send_instruction_pdf,
-    request_contact_for_warranty, process_warranty_case_contact
+    request_contact_for_warranty, process_warranty_case_contact,
+    show_warranty_main_menu, show_warranty_conditions, show_warranty_activation_menu
 )
 
 
@@ -82,7 +83,7 @@ def index(request: HttpRequest) -> JsonResponse:
 start = bot.message_handler(commands=["start"])(start)
 menu_call = bot.callback_query_handler(lambda c: c.data == "menu")(menu_call)
 back_to_main_handler = bot.callback_query_handler(lambda c: c.data == "back_to_main")(back_to_main)
-my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "my_warranties")(show_my_warranties)
+my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "warranty_main_menu")(show_warranty_main_menu)
 admin_command_handler = bot.message_handler(commands=['admin'])(admin_command)
 
 # Обработчик для контактов и номеров телефона в гарантийных случаях
@@ -103,7 +104,7 @@ back_to_categories_handler = bot.callback_query_handler(lambda c: c.data == "bac
 # Обработчики для информации о товаре
 instructions_handler = bot.callback_query_handler(lambda c: c.data.startswith("instructions_"))(show_product_info)
 faq_handler = bot.callback_query_handler(lambda c: c.data.startswith("faq_"))(show_product_info)
-warranty_info_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_") and c.data != "warranty_cases")(show_product_info)
+warranty_info_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_") and not c.data.startswith("warranty_main") and not c.data.startswith("warranty_conditions") and not c.data.startswith("warranty_activation") and c.data != "warranty_cases")(show_product_info)
 support_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_"))(show_product_info)
 
 # Обработчики для расширенной гарантии
@@ -126,4 +127,9 @@ request_contact_handler = bot.callback_query_handler(lambda c: c.data.startswith
 
 # Обработчики для PDF инструкций
 instruction_pdf_handler = bot.callback_query_handler(lambda c: c.data.startswith("instruction_pdf_"))(send_instruction_pdf)
+
+# Новые обработчики для меню гарантии
+warranty_main_menu_handler = bot.callback_query_handler(lambda c: c.data == "warranty_main_menu")(show_warranty_main_menu)
+warranty_conditions_handler = bot.callback_query_handler(lambda c: c.data == "warranty_conditions")(show_warranty_conditions)
+warranty_activation_menu_handler = bot.callback_query_handler(lambda c: c.data == "warranty_activation_menu")(show_warranty_activation_menu)
 

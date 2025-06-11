@@ -22,7 +22,11 @@ from .common import (
     send_instruction_pdf,
     send_faq_pdf,
     request_contact_for_warranty,
-    process_warranty_case_contact
+    process_warranty_case_contact,
+    process_warranty_case_description,
+    show_warranty_main_menu,
+    show_warranty_conditions,
+    show_warranty_activation_menu
 )
 
 from .registration import start_registration
@@ -35,6 +39,14 @@ def handle_callback(call: CallbackQuery) -> None:
     try:
         if call.data == "menu":
             menu_call(call)
+        elif call.data == "my_warranties":
+            show_warranty_main_menu(call)
+        elif call.data == "warranty_main_menu":
+            show_warranty_main_menu(call)
+        elif call.data == "warranty_conditions":
+            show_warranty_conditions(call)
+        elif call.data == "warranty_activation_menu":
+            show_warranty_activation_menu(call)
         elif call.data == "warranty_cases":
             show_warranty_cases(call)
         elif call.data.startswith("warranty_case_"):
@@ -63,8 +75,6 @@ def handle_callback(call: CallbackQuery) -> None:
             back_to_main(call)
         elif call.data == "back_to_categories":
             back_to_categories(call)
-        elif call.data == "show_my_warranties":
-            show_my_warranties(call)
         elif call.data == "send_excel":
             send_excel_to_admin(call)
         elif call.data.startswith('faq_pdf_'):

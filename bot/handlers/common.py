@@ -2,8 +2,9 @@ from telebot.types import Message, CallbackQuery, InlineKeyboardButton, InlineKe
 from bot import bot
 from bot.texts import MAIN_TEXT, SUPPORT_TEXT, SUPPORT_LIMIT_REACHED, AI_ERROR
 from bot.texts import SEND_SCREENSHOT, SCREENSHOT_PROCESSING, SCREENSHOT_CHECKING, SCREENSHOT_INVALID, SCREENSHOT_VERIFIED, SCREENSHOT_LIMIT_REACHED
+from bot.texts import WARRANTY_CONDITIONS_TEXT
 from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup
-from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup
+from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup, get_warranty_main_menu_markup
 from .registration import start_registration
 from bot.models import goods, goods_category, User, AdminContact, FAQ
 from bot.apis import analyze_screenshot
@@ -534,7 +535,7 @@ def show_product_info(call: CallbackQuery) -> None:
                     markup.add(btn)
                 
                 # Добавляем кнопку назад
-                back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}")
+                back_btn = InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu")
                 markup.add(back_btn)
                 
                 text = f"❓ Часто задаваемые вопросы о {product.name}:\n\nВыберите интересующий вопрос:"
@@ -577,7 +578,7 @@ def show_product_info(call: CallbackQuery) -> None:
                 else:
                     text = f"❓ Часто задаваемые вопросы о {product.name} отсутствуют."
                     markup = InlineKeyboardMarkup()
-                    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
+                    markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
                     bot.send_message(
                         chat_id=call.message.chat.id,
                         text=text,
@@ -651,8 +652,6 @@ def show_product_info(call: CallbackQuery) -> None:
                     if doc.pdf_file and doc.text_content:
                         # Если есть и PDF файл, и текст, отправляем их одним сообщением
                         text = (
-                            f"🛡️ Условия гарантии на {product.name}:\n\n"
-                            f"{doc.text_content}\n\n"
                             f"✨ Как получить расширенную гарантию?\n\n"
                             f"1️⃣ Оставьте отзыв с 5 звездами о товаре\n"
                             f"2️⃣ Сделайте скриншот отзыва\n"
@@ -1315,7 +1314,7 @@ def show_my_warranties(call: CallbackQuery) -> None:
         
         markup = InlineKeyboardMarkup()
         warranty_case_btn = InlineKeyboardButton("🛠️ Гарантийный случай", callback_data="warranty_cases")
-        back_btn = InlineKeyboardButton("⬅️ Главное меню", callback_data="back_to_main")
+        back_btn = InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu")
         markup.add(warranty_case_btn)
         markup.add(back_btn)
         
@@ -1538,11 +1537,11 @@ def chat_with_ai(message):
         if message.text == "📱 Каталог товаров":
             show_categories(message.chat.id)
             return
-        elif message.text == "🛡️ Мои гарантии":
-            show_my_warranties(CallbackQuery(message=message))
+        elif message.text == "🛡️ Гарантия":
+            show_warranty_main_menu(CallbackQuery(from_user=message.from_user, message=message, data="warranty_main_menu", id=""))
             return
         elif message.text == "🔧 Гарантийный случай":
-            show_warranty_cases(CallbackQuery(message=message))
+            show_warranty_cases(CallbackQuery(from_user=message.from_user, message=message, data="warranty_cases", id=""))
             return
         elif message.text == "🔧 Админ-панель":
             handle_admin_panel(message)
@@ -1889,7 +1888,7 @@ def show_warranty_cases(call: CallbackQuery) -> None:
             text=f"{w['name']}",
             callback_data=f"atwarranty_case_{w['id']}"
         ))
-    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+    markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
     bot.edit_message_text(
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
@@ -2307,4 +2306,100 @@ def process_warranty_case_description(message) -> None:
             chat_id=user_id,
             text="Произошла ошибка при обработке заявки. Пожалуйста, попробуйте позже.",
             reply_markup=main_markup
+        )
+
+@disable_ai_mode
+def show_warranty_main_menu(call: CallbackQuery) -> None:
+    """Показывает главное меню гарантии"""
+    try:
+        markup = get_warranty_main_menu_markup()
+        text = "🛡️ Раздел гарантии\n\nВыберите нужный вам пункт:"
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе главного меню гарантии: {e}")
+        logger.error(f"[ERROR] Ошибка при показе главного меню гарантии: {e}")
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
+        )
+
+@disable_ai_mode
+def show_warranty_conditions(call: CallbackQuery) -> None:
+    """Показывает условия гарантии"""
+    try:
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=WARRANTY_CONDITIONS_TEXT,
+            reply_markup=markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе условий гарантии: {e}")
+        logger.error(f"[ERROR] Ошибка при показе условий гарантии: {e}")
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
+        )
+
+@disable_ai_mode
+def show_warranty_activation_menu(call: CallbackQuery) -> None:
+    """Показывает меню активации расширенной гарантии - список товаров"""
+    try:
+        # Получаем все активные товары
+        products = goods.objects.filter(is_active=True)
+        
+        if not products.exists():
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="В настоящее время нет доступных товаров для активации расширенной гарантии.",
+                reply_markup=markup
+            )
+            return
+        
+        # Группируем товары по категориям
+        categories = goods_category.objects.filter(goods__in=products).distinct()
+        
+        markup = InlineKeyboardMarkup()
+        
+        if categories.exists():
+            markup.add(InlineKeyboardButton("📱 Выбрать по категориям", callback_data="catalog"))
+        
+        # Добавляем кнопку назад
+        markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
+        
+        text = (
+            "✅ Активация расширенной гарантии\n\n"
+            "Для активации расширенной гарантии:\n"
+            "1️⃣ Выберите товар из каталога\n"
+            "2️⃣ Перейдите в раздел 'Гарантия' товара\n"
+            "3️⃣ Следуйте инструкциям для активации\n\n"
+            "Выберите способ поиска товара:"
+        )
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=markup
+        )
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе меню активации гарантии: {e}")
+        logger.error(f"[ERROR] Ошибка при показе меню активации гарантии: {e}")
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
         )
