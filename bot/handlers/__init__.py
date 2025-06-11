@@ -21,6 +21,7 @@ from .common import (
     handle_warranty_case,
     send_instruction_pdf,
     send_faq_pdf,
+    send_product_instruction_pdf,
     request_contact_for_warranty,
     process_warranty_case_contact,
     process_warranty_case_description,
@@ -56,7 +57,9 @@ def handle_callback(call: CallbackQuery) -> None:
         elif call.data.startswith("request_contact_"):
             request_contact_for_warranty(call)
         elif call.data.startswith("instruction_pdf_"):
-            send_instruction_pdf(call, bot)
+            send_instruction_pdf(call)
+        elif call.data.startswith("product_instruction_pdf_"):
+            send_product_instruction_pdf(call)
         elif call.data.startswith("instructions_") or call.data.startswith("faq_") or call.data.startswith("warranty_"):
             show_product_info(call)
         elif call.data.startswith("category_"):

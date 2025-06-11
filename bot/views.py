@@ -20,6 +20,7 @@ from bot.handlers import (
     cancel_warranty_activation, show_my_warranties, check_screenshot,
     confirm_review, cancel_review, send_excel_to_admin, admin_command,
     show_warranty_cases, handle_warranty_case, send_instruction_pdf,
+    send_product_instruction_pdf,
     request_contact_for_warranty, process_warranty_case_contact,
     show_warranty_main_menu, show_warranty_conditions, show_warranty_activation_menu
 )
@@ -127,6 +128,7 @@ request_contact_handler = bot.callback_query_handler(lambda c: c.data.startswith
 
 # Обработчики для PDF инструкций
 instruction_pdf_handler = bot.callback_query_handler(lambda c: c.data.startswith("instruction_pdf_"))(send_instruction_pdf)
+product_instruction_pdf_handler = bot.callback_query_handler(lambda c: c.data.startswith("product_instruction_pdf_"))(send_product_instruction_pdf)
 
 # Новые обработчики для меню гарантии
 warranty_main_menu_handler = bot.callback_query_handler(lambda c: c.data == "warranty_main_menu")(show_warranty_main_menu)
