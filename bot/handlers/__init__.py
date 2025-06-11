@@ -40,7 +40,7 @@ def handle_callback(call: CallbackQuery) -> None:
         if call.data == "menu":
             menu_call(call)
         elif call.data == "my_warranties":
-            show_warranty_main_menu(call)
+            show_my_warranties(call)
         elif call.data == "warranty_main_menu":
             show_warranty_main_menu(call)
         elif call.data == "warranty_conditions":

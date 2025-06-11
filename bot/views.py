@@ -83,7 +83,7 @@ def index(request: HttpRequest) -> JsonResponse:
 start = bot.message_handler(commands=["start"])(start)
 menu_call = bot.callback_query_handler(lambda c: c.data == "menu")(menu_call)
 back_to_main_handler = bot.callback_query_handler(lambda c: c.data == "back_to_main")(back_to_main)
-my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "warranty_main_menu")(show_warranty_main_menu)
+my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "my_warranties")(show_my_warranties)
 admin_command_handler = bot.message_handler(commands=['admin'])(admin_command)
 
 # Обработчик для контактов и номеров телефона в гарантийных случаях

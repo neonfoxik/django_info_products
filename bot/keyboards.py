@@ -61,12 +61,13 @@ def get_main_markup(user_id: int) -> ReplyKeyboardMarkup:
         markup.row("🔧 Админ-панель")
     return markup
 
-def get_warranty_main_menu_markup():
+def get_warranty_main_menu_markup(has_active_warranties=False):
     """Создает клавиатуру главного меню гарантии"""
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("📋 Условия гарантии", callback_data="warranty_conditions"))
     markup.add(InlineKeyboardButton("✅ Активировать расширенную гарантию", callback_data="catalog"))
-    markup.add(InlineKeyboardButton("🛡️ Мои гарантии", callback_data="my_warranties"))
+    if has_active_warranties:
+        markup.add(InlineKeyboardButton("🛡️ Мои гарантии", callback_data="my_warranties"))
     markup.add(InlineKeyboardButton("🛠️ Обратиться по гарантии", callback_data="warranty_cases"))
     markup.add(InlineKeyboardButton("⬅️ Главное меню", callback_data="back_to_main"))
     return markup

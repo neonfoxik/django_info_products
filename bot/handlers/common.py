@@ -2312,7 +2312,27 @@ def process_warranty_case_description(message) -> None:
 def show_warranty_main_menu(call: CallbackQuery) -> None:
     """Показывает главное меню гарантии"""
     try:
-        markup = get_warranty_main_menu_markup()
+        # Проверяем, есть ли у пользователя активированные гарантии
+        has_active_warranties = False
+        try:
+            user = User.objects.get(telegram_id=call.message.chat.id)
+            warranty_data = user.warranty_data or {}
+            
+            if isinstance(warranty_data, str):
+                warranty_data = json.loads(warranty_data)
+            
+            # Фильтруем только активные гарантии
+            active_warranties = {
+                product_id: data 
+                for product_id, data in warranty_data.items() 
+                if data.get('is_active', False)
+            }
+            
+            has_active_warranties = len(active_warranties) > 0
+        except User.DoesNotExist:
+            pass
+        
+        markup = get_warranty_main_menu_markup(has_active_warranties)
         text = "🛡️ Раздел гарантии\n\nВыберите нужный вам пункт:"
         
         bot.edit_message_text(
