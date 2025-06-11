@@ -107,7 +107,7 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             
             # Вызываем модель с поддержкой компьютерного зрения
             response = client.chat.completions.create(
-                model="vis-google/gemini-2.5-flash-pre-05-20",
+                model="vis-qwen/qwen2.5-vl-72b-instruct",
                 messages=messages,
                 max_tokens=100
             )
