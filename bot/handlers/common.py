@@ -6,7 +6,7 @@ from bot.texts import WARRANTY_CONDITIONS_TEXT
 from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup
 from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup, get_warranty_main_menu_markup
 from .registration import start_registration
-from bot.models import goods, goods_category, User, AdminContact, FAQ
+from bot.models import goods, goods_category, User, AdminContact, FAQ, Instruction
 from bot.apis import analyze_screenshot
 from bot.apis.ai import OpenAIAPI
 from functools import wraps
@@ -476,46 +476,73 @@ def show_product_info(call: CallbackQuery) -> None:
             logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
         
         if info_type == "instructions":
-            # Получаем документ с инструкцией (старый формат)
-            doc = product.documents.filter(document_type='instructions').first()
-            if doc:
-                if doc.pdf_file and doc.text_content:
-                    # Если есть и PDF файл, и текст, отправляем их одним сообщением
-                    text = f"📖 Инструкция по применению {product.name}:\n\n{doc.text_content}"
-                    with open(doc.pdf_file.path, 'rb') as pdf:
-                        bot.send_document(
-                            chat_id=call.message.chat.id,
-                            document=pdf,
-                            caption=text,
-                            reply_markup=markup
-                        )
-                elif doc.pdf_file:
-                    # Если есть только PDF файл
-                    with open(doc.pdf_file.path, 'rb') as pdf:
-                        bot.send_document(
-                            chat_id=call.message.chat.id,
-                            document=pdf,
-                            caption=f"📖 Инструкция по применению {product.name}",
-                            reply_markup=markup
-                        )
-                elif doc.text_content:
-                    # Если есть только текст
-                    text = f"📖 Инструкция по применению {product.name}:\n\n{doc.text_content}"
-                    bot.send_message(
-                        chat_id=call.message.chat.id,
-                        text=text,
-                        reply_markup=markup
-                    )
-            else:
-                text = f"📖 Инструкция по применению {product.name} отсутствует."
+            # Получаем все активные инструкции для товара
+            instructions = Instruction.objects.filter(
+                product=product, 
+                is_active=True
+            ).order_by('order', 'title')
+            
+            if instructions.exists():
+                # Создаем клавиатуру с инструкциями
                 markup = InlineKeyboardMarkup()
-                markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
+                
+                for instruction in instructions:
+                    btn = InlineKeyboardButton(
+                        instruction.title,
+                        callback_data=f"instruction_pdf_{instruction.id}"
+                    )
+                    markup.add(btn)
+                
+                # Добавляем кнопку назад
+                back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}")
+                markup.add(back_btn)
+                
+                text = f"📖 Инструкции для {product.name}:\n\nВыберите нужную инструкцию:"
                 bot.send_message(
                     chat_id=call.message.chat.id,
                     text=text,
                     reply_markup=markup
                 )
-                
+            else:
+                # Если инструкций нет, проверяем старый формат (ProductDocument)
+                doc = product.documents.filter(document_type='instructions').first()
+                if doc:
+                    if doc.pdf_file and doc.text_content:
+                        # Если есть и PDF файл, и текст, отправляем их одним сообщением
+                        text = f"📖 Инструкция по применению {product.name}:\n\n{doc.text_content}"
+                        with open(doc.pdf_file.path, 'rb') as pdf:
+                            bot.send_document(
+                                chat_id=call.message.chat.id,
+                                document=pdf,
+                                caption=text,
+                                reply_markup=markup
+                            )
+                    elif doc.pdf_file:
+                        # Если есть только PDF файл
+                        with open(doc.pdf_file.path, 'rb') as pdf:
+                            bot.send_document(
+                                chat_id=call.message.chat.id,
+                                document=pdf,
+                                caption=f"📖 Инструкция по применению {product.name}",
+                                reply_markup=markup
+                            )
+                    elif doc.text_content:
+                        # Если есть только текст
+                        text = f"📖 Инструкция по применению {product.name}:\n\n{doc.text_content}"
+                        bot.send_message(
+                            chat_id=call.message.chat.id,
+                            text=text,
+                            reply_markup=markup
+                        )
+                else:
+                    text = f"📖 Инструкции для {product.name} отсутствуют."
+                    markup = InlineKeyboardMarkup()
+                    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
+                    bot.send_message(
+                        chat_id=call.message.chat.id,
+                        text=text,
+                        reply_markup=markup
+                    )
         elif info_type == "faq":
             # Получаем все активные FAQ для товара
             faqs = FAQ.objects.filter(
@@ -1958,10 +1985,10 @@ def send_instruction_pdf(call: CallbackQuery, bot: TeleBot) -> None:
     """Отправляет PDF файл инструкции"""
     try:
         instruction_id = int(call.data.split('_')[-1])
-        instruction = FAQ.objects.get(id=instruction_id, is_active=True)
+        instruction = Instruction.objects.get(id=instruction_id, is_active=True)
         
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_instructions_{instruction.product.id}"))
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"instructions_{instruction.product.id}"))
         
         if instruction.pdf_file:
             with open(instruction.pdf_file.path, 'rb') as pdf:
@@ -1982,7 +2009,7 @@ def send_instruction_pdf(call: CallbackQuery, bot: TeleBot) -> None:
                 text=text,
                 reply_markup=markup
             )
-    except (ValueError, FAQ.DoesNotExist):
+    except (ValueError, Instruction.DoesNotExist):
         # Если произошла ошибка, возвращаемся к списку товаров
         bot.send_message(
             chat_id=call.message.chat.id,

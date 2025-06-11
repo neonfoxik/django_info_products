@@ -28,6 +28,7 @@ def get_back_markup(callback_data):
 # Клавиатура для товара без кнопки расширенной гарантии
 def get_product_menu_markup(product_id):
     markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("📖 Инструкции", callback_data=f"instructions_{product_id}"))
     markup.add(InlineKeyboardButton("❓ FAQ", callback_data=f"faq_{product_id}"))
     markup.add(InlineKeyboardButton("🛡️ Гарантия", callback_data=f"warranty_{product_id}"))
     markup.add(InlineKeyboardButton("📞 Поддержка", callback_data=f"support_{product_id}"))

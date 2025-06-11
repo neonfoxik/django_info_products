@@ -56,7 +56,7 @@ def handle_callback(call: CallbackQuery) -> None:
         elif call.data.startswith("request_contact_"):
             request_contact_for_warranty(call)
         elif call.data.startswith("instruction_pdf_"):
-            send_instruction_pdf(call)
+            send_instruction_pdf(call, bot)
         elif call.data.startswith("instructions_") or call.data.startswith("faq_") or call.data.startswith("warranty_"):
             show_product_info(call)
         elif call.data.startswith("category_"):
