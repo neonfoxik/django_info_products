@@ -66,7 +66,7 @@ def get_warranty_main_menu_markup(has_active_warranties=False):
     """Создает клавиатуру главного меню гарантии"""
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("📋 Условия гарантии", callback_data="warranty_conditions"))
-    markup.add(InlineKeyboardButton("✅ Активировать расширенную гарантию", callback_data="catalog"))
+    markup.add(InlineKeyboardButton("✅ Активировать расширенную гарантию", callback_data="waranty_goods_fast"))
     if has_active_warranties:
         markup.add(InlineKeyboardButton("🛡️ Мои гарантии", callback_data="my_warranties"))
     markup.add(InlineKeyboardButton("🛠️ Обратиться по гарантии", callback_data="warranty_cases"))

@@ -3,12 +3,12 @@ from .models import User, goods_category, goods, ProductImage, ProductDocument, 
 from django import forms
 
 class UserAdmin(admin.ModelAdmin):
-    list_display = ('user_name', 'is_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
-    search_fields = ('user_name',)
+    list_display = ('user_name', 'phone_number', 'is_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
+    search_fields = ('user_name', 'phone_number')
     ordering = ('-telegram_id',)
     fieldsets = (
         (None, {
-            'fields': ('telegram_id', 'user_name', 'is_admin', 'is_ai', 'chat_history', 'warranty_data', 'screenshots_count', 'last_screenshot_date', 'messages_count', 'last_message_id')
+            'fields': ('telegram_id', 'user_name', 'phone_number', 'is_admin', 'is_ai', 'chat_history', 'warranty_data', 'screenshots_count', 'last_screenshot_date', 'messages_count', 'last_message_id')
         }),
     )
 
@@ -47,7 +47,7 @@ class FAQAdmin(admin.ModelAdmin):
 class ProductImageInline(admin.TabularInline):
     model = ProductImage
     extra = 1
-    fields = ('image', 'is_primary')
+    fields = ('image',)
 
 class ProductDocumentInline(admin.TabularInline):
     model = ProductDocument
@@ -80,10 +80,23 @@ class ProductDocumentInline(admin.TabularInline):
         return formset
 
 class GoodsAdmin(admin.ModelAdmin):
-    list_display = ('name', 'parent_category')
-    list_filter = ('parent_category',)
+    list_display = ('name', 'parent_category', 'extended_warranty', 'is_active')
+    list_filter = ('parent_category', 'is_active')
     search_fields = ('name',)
+    list_editable = ('is_active', 'extended_warranty')
     inlines = [ProductImageInline, ProductDocumentInline, FAQInline]
+    fieldsets = (
+        (None, {
+            'fields': ('name', 'parent_category', 'is_active')
+        }),
+        ('Гарантия', {
+            'fields': ('extended_warranty',)
+        }),
+        ('AI поддержка', {
+            'fields': ('ai_instruction',),
+            'description': 'Инструкция для ИИ при общении с пользователями по данному товару'
+        }),
+    )
 
 class AdminContactAdmin(admin.ModelAdmin):
     list_display = ('admin_contact', 'support_contact', 'is_active', 'updated_at')

@@ -22,7 +22,8 @@ from bot.handlers import (
     show_warranty_cases, handle_warranty_case, send_instruction_pdf,
     send_product_instruction_pdf,
     request_contact_for_warranty, process_warranty_case_contact,
-    show_warranty_main_menu, show_warranty_conditions, show_warranty_activation_menu
+    show_warranty_main_menu, show_warranty_conditions, show_warranty_activation_menu,
+    waranty_goods_fast
 )
 
 
@@ -134,4 +135,7 @@ product_instruction_pdf_handler = bot.callback_query_handler(lambda c: c.data.st
 warranty_main_menu_handler = bot.callback_query_handler(lambda c: c.data == "warranty_main_menu")(show_warranty_main_menu)
 warranty_conditions_handler = bot.callback_query_handler(lambda c: c.data == "warranty_conditions")(show_warranty_conditions)
 warranty_activation_menu_handler = bot.callback_query_handler(lambda c: c.data == "warranty_activation_menu")(show_warranty_activation_menu)
+
+# Обработчик для быстрой активации гарантии
+warranty_goods_fast_handler = bot.callback_query_handler(lambda c: c.data == "waranty_goods_fast")(waranty_goods_fast)
 

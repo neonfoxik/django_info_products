@@ -186,7 +186,7 @@ def show_category_products(call: CallbackQuery) -> None:
             show_categories(call.message.chat.id, call.message.message_id)
             return
         
-        products = goods.objects.filter(parent_category=category)
+        products = goods.objects.filter(parent_category=category, is_active=True)
         
         markup = InlineKeyboardMarkup()
         
@@ -265,6 +265,13 @@ def show_product_menu(call: CallbackQuery) -> None:
         
         try:
             product = goods.objects.get(id=product_id)
+            
+            # Проверяем, активен ли товар
+            if not product.is_active:
+                bot.answer_callback_query(call.id, "Товар неактивен.")
+                show_categories(call.message.chat.id, call.message.message_id)
+                return
+                
         except goods.DoesNotExist:
             # Если товар не найден, возвращаемся к списку категорий
             bot.answer_callback_query(call.id, "Товар не найден. Возможно, он был удален.")
@@ -848,6 +855,11 @@ def check_screenshot(message: Message) -> None:
             product_id = warranty_activation_state[message.chat.id]['product_id']
             print(f"[LOG] Product ID: {product_id}")
             
+            # Проверяем, есть ли у товара изображение
+            product = goods.objects.get(id=product_id)
+            has_product_image = product.images.exists()
+            print(f"[LOG] У товара есть изображение: {has_product_image}")
+            
             # Обновляем сообщение с информацией о проверке
             bot.edit_message_text(
                 chat_id=message.chat.id,
@@ -907,12 +919,61 @@ def check_screenshot(message: Message) -> None:
                         print(f"[ERROR] Ошибка при отправке лога: {e}")
                         logger.error(f"[ERROR] Ошибка при отправке лога: {e}")
                 
-                # Если скриншот не подтвержден или уверенность слишком низкая
-                if not is_valid or (product_match is False):
+                # Проверяем все условия для активации гарантии
+                should_block = False
+                
+                print(f"[LOG] Проверка условий активации:")
+                print(f"[LOG] - 5 звезд: {is_valid}")
+                print(f"[LOG] - Товар возвращен: {analysis_result.get('is_returned', False)}")
+                print(f"[LOG] - Несколько товаров: {analysis_result.get('has_multiple_products', False)}")
+                print(f"[LOG] - У товара есть изображение: {has_product_image}")
+                print(f"[LOG] - Соответствие товара: {product_match}")
+                print(f"[LOG] - Название товара: {product.name}")
+                
+                # КРИТИЧНО: Проверяем в правильном порядке
+                # 1. Сначала базовые условия
+                if not is_valid:
+                    should_block = True
+                    print(f"[LOG] Блокировка: нет 5 звезд")
+                elif analysis_result.get('is_returned', False):
+                    should_block = True
+                    print(f"[LOG] Блокировка: товар возвращен")
+                elif analysis_result.get('has_multiple_products', False):
+                    should_block = True
+                    print(f"[LOG] Блокировка: несколько товаров")
+                # 2. Только если базовые условия пройдены, проверяем соответствие товара
+                elif has_product_image and product_match is not True:
+                    should_block = True
+                    print(f"[LOG] КРИТИЧНО: Блокировка - товар не соответствует (есть изображение)")
+                    print(f"[LOG] Детали: product_match={product_match}, has_product_image={has_product_image}")
+                
+                print(f"[LOG] Итоговое решение: {'Блокировать' if should_block else 'Разрешить'}")
+                
+                if should_block:
                     # Формируем сообщение в зависимости от результатов проверки
                     message_parts = []
                     
-                    if stars_count > 0 and stars_count < 5:
+                    if analysis_result.get('is_returned', False):
+                        message_parts.append(
+                            "Товар возвращен или отменен. Расширенная гарантия недоступна."
+                        )
+                    elif analysis_result.get('has_multiple_products', False):
+                        message_parts.append(
+                            "На скриншоте обнаружено несколько товаров. Пожалуйста, отправьте скриншот только с одним товаром."
+                        )
+                    elif has_product_image and product_match is False:
+                        message_parts.append(
+                            f"❌ Товар в отзыве НЕ соответствует запрошенному товару '{product.name}'. "
+                            f"Пожалуйста, убедитесь, что вы отправляете скриншот отзыва именно этого товара. "
+                            f"Товары должны быть ОДИНАКОВЫМИ по типу, внешнему виду и функциональности."
+                        )
+                    elif has_product_image and product_match is None:
+                        message_parts.append(
+                            f"❓ Не удалось определить соответствие товара '{product.name}'. "
+                            f"Пожалуйста, убедитесь, что отправляете скриншот отзыва правильного товара. "
+                            f"Товары должны быть ОДИНАКОВЫМИ по типу, внешнему виду и функциональности."
+                        )
+                    elif stars_count > 0 and stars_count < 5:
                         message_parts.append(
                             f"Мы сожалеем, что вам не понравился наш продукт. 😔\n\n"
                             f"В вашем отзыве обнаружено {stars_count} звезд. К сожалению, мы не можем предоставить вам расширенную гарантию, "
@@ -921,10 +982,6 @@ def check_screenshot(message: Message) -> None:
                             f"1. Оставить отзыв с 5 звездами\n"
                             f"2. Отправить скриншот этого отзыва\n\n"
                             f"Вы можете изменить свой отзыв на 5 звезд и отправить новый скриншот."
-                        )
-                    elif product_match is False:
-                        message_parts.append(
-                            "Товар в отзыве не соответствует запрошенному. Пожалуйста, убедитесь, что вы отправляете скриншот отзыва правильного товара."
                         )
                     else:
                         message_parts.append(analysis_result.get('message', SCREENSHOT_INVALID))
@@ -1013,6 +1070,12 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
         
         product = goods.objects.get(id=product_id)
         user = User.objects.get(telegram_id=chat_id)
+        
+        # Проверяем, активен ли товар
+        if not product.is_active:
+            error_text = "Товар неактивен. Расширенная гарантия недоступна."
+            send_long_message(chat_id, error_text, message_id)
+            return
         
         # Проверяем, не возвращен ли товар
         if product.is_returned:
@@ -2440,3 +2503,147 @@ def send_product_instruction_pdf(call: CallbackQuery) -> None:
             chat_id=call.message.chat.id,
             text="Ошибка: Товар не найден."
         )
+
+@disable_ai_mode
+def waranty_goods_fast(call: CallbackQuery):
+    """Показывает все активные товары для быстрой активации расширенной гарантии"""
+    try:
+        # Получаем пользователя и его данные о гарантиях
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        warranty_data = user.warranty_data or {}
+        
+        if isinstance(warranty_data, str):
+            warranty_data = json.loads(warranty_data)
+        
+        # Получаем все активные товары
+        products = goods.objects.filter(is_active=True).order_by('parent_category__name', 'name')
+        
+        if not products.exists():
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="В настоящее время нет доступных товаров для активации расширенной гарантии.",
+                reply_markup=markup
+            )
+            return
+        
+        # Фильтруем товары, исключая те, на которые уже активирована гарантия
+        available_products = []
+        for product in products:
+            product_warranty = warranty_data.get(str(product.id), {})
+            if not product_warranty.get('is_active', False):
+                available_products.append(product)
+        
+        # Проверяем, есть ли доступные товары для активации
+        if not available_products:
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="🎉 Поздравляем! У вас уже активирована расширенная гарантия на все доступные товары!",
+                reply_markup=markup
+            )
+            return
+        
+        # Группируем доступные товары по категориям для лучшей организации
+        categories = {}
+        for product in available_products:
+            category_name = product.parent_category.name
+            if category_name not in categories:
+                categories[category_name] = []
+            categories[category_name].append(product)
+        
+        # Создаем клавиатуру с товарами, сгруппированными по категориям
+        markup = InlineKeyboardMarkup(row_width=1)
+        
+        for category_name, category_products in categories.items():
+            # Добавляем заголовок категории (если категорий больше одной)
+            if len(categories) > 1:
+                markup.add(InlineKeyboardButton(
+                    f"📂 {category_name}",
+                    callback_data="category_header"
+                ))
+            
+            # Добавляем товары категории
+            for product in category_products:
+                # Форматируем срок гарантии для отображения
+                warranty_years = product.extended_warranty
+                if warranty_years.is_integer():
+                    warranty_text = f"{int(warranty_years)} {'год' if warranty_years == 1 else 'года' if 1 < warranty_years < 5 else 'лет'}"
+                else:
+                    months = int(warranty_years * 12)
+                    warranty_text = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
+                
+                # Создаем текст кнопки с названием товара и сроком гарантии
+                button_text = f"📱 {product.name} ({warranty_text})"
+                
+                # Используем callback_data для прямой активации гарантии
+                markup.add(InlineKeyboardButton(
+                    button_text,
+                    callback_data=f"activate_warranty_{product.id}"
+                ))
+        
+        # Добавляем кнопку назад
+        markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
+        
+        # Показываем количество доступных товаров
+        total_products = products.count()
+        available_count = len(available_products)
+        activated_count = total_products - available_count
+        
+        text = (
+            f"✅ Быстрая активация расширенной гарантии\n\n"
+            f"Доступно товаров для активации: {available_count} из {total_products}\n"
+        )
+        
+        if activated_count > 0:
+            text += f"Уже активировано: {activated_count} товаров\n\n"
+        
+        text += (
+            "Выберите товар для активации расширенной гарантии:\n\n"
+            "После выбора товара вам нужно будет:\n"
+            "1️⃣ Отправить скриншот отзыва с 5 звездами\n"
+            "2️⃣ Дождаться проверки скриншота\n"
+            "3️⃣ Получить подтверждение активации гарантии"
+        )
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=markup
+        )
+        
+        print(f"[LOG] Показано меню быстрой активации гарантии для пользователя {call.message.chat.id}. Доступно: {available_count}/{total_products}")
+        logger.info(f"[LOG] Показано меню быстрой активации гарантии для пользователя {call.message.chat.id}. Доступно: {available_count}/{total_products}")
+        
+    except User.DoesNotExist:
+        # Если пользователь не найден, показываем все товары
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Для доступа к быстрой активации гарантии необходимо зарегистрироваться.",
+            reply_markup=markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе меню быстрой активации гарантии: {e}")
+        logger.error(f"[ERROR] Ошибка при показе меню быстрой активации гарантии: {e}")
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Произошла ошибка при загрузке товаров. Пожалуйста, попробуйте позже.",
+            reply_markup=markup
+        )
+    

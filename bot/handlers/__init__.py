@@ -27,7 +27,8 @@ from .common import (
     process_warranty_case_description,
     show_warranty_main_menu,
     show_warranty_conditions,
-    show_warranty_activation_menu
+    show_warranty_activation_menu,
+    waranty_goods_fast
 )
 
 from .registration import start_registration
@@ -48,6 +49,8 @@ def handle_callback(call: CallbackQuery) -> None:
             show_warranty_conditions(call)
         elif call.data == "warranty_activation_menu":
             show_warranty_activation_menu(call)
+        elif call.data == "waranty_goods_fast":
+            waranty_goods_fast(call)
         elif call.data == "warranty_cases":
             show_warranty_cases(call)
         elif call.data.startswith("warranty_case_"):
@@ -78,18 +81,25 @@ def handle_callback(call: CallbackQuery) -> None:
             back_to_main(call)
         elif call.data == "back_to_categories":
             back_to_categories(call)
-        elif call.data == "send_excel":
+        elif call.data == "admin_excel":
             send_excel_to_admin(call)
-        elif call.data.startswith('faq_pdf_'):
-            send_faq_pdf(call, bot)
+        elif call.data == "catalog":
+            show_categories(call.message.chat.id, call.message.message_id)
+        elif call.data == "category_header":
+            # Заголовки категорий - просто игнорируем нажатие
+            bot.answer_callback_query(
+                callback_query_id=call.id,
+                text=""
+            )
         else:
-            print(f"[WARNING] Неизвестный callback_data: {call.data}")
-            logger.warning(f"[WARNING] Неизвестный callback_data: {call.data}")
+            # Если callback не обработан, отправляем сообщение об ошибке
+            bot.answer_callback_query(
+                callback_query_id=call.id,
+                text="Неизвестная команда"
+            )
     except Exception as e:
-        print(f"[ERROR] Ошибка при обработке callback: {e}")
-        logger.error(f"[ERROR] Ошибка при обработке callback: {e}")
-        # Отправляем сообщение пользователю об ошибке
+        logger.error(f"Ошибка в handle_callback: {e}")
         bot.answer_callback_query(
             callback_query_id=call.id,
-            text="Произошла ошибка. Пожалуйста, попробуйте снова."
+            text="Произошла ошибка. Попробуйте позже."
         )

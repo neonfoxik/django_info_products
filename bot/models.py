@@ -171,10 +171,6 @@ class ProductImage(models.Model):
         upload_to='products/images/',
         verbose_name='Изображение товара'
     )
-    is_primary = models.BooleanField(
-        default=False,
-        verbose_name='Основное изображение'
-    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name='Дата добавления'
@@ -186,7 +182,7 @@ class ProductImage(models.Model):
     class Meta:
         verbose_name = 'Изображение товара'
         verbose_name_plural = 'Изображения товаров'
-        ordering = ['-is_primary', '-created_at']
+        ordering = ['-created_at']
 
 class ProductDocument(models.Model):
     DOCUMENT_TYPES = [
@@ -251,6 +247,10 @@ class goods(models.Model):
         null=True,
         help_text='Системное сообщение для ИИ при общении по данному товару'
     )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Активен'
+    )
 
     def __str__(self):
         return str(self.name)
@@ -276,7 +276,7 @@ class goods(models.Model):
 
     @property
     def primary_image(self):
-        return self.images.filter(is_primary=True).first()
+        return self.images.first()
 
     @property
     def is_returned(self):

@@ -38,13 +38,15 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
         
         # Если передан product_id, пытаемся получить изображение товара (если оно есть)
         product_image = None
+        product_name = None
         if product_id:
             from bot.models import goods
             try:
                 product = goods.objects.get(id=product_id)
-                # Проверяем наличие primary_image (если есть связь)
-                if hasattr(product, 'primary_image') and product.primary_image and hasattr(product.primary_image, 'image'):
-                    product_image = product.primary_image.image.path
+                product_name = product.name
+                # Проверяем наличие изображений товара
+                if product.images.exists():
+                    product_image = product.images.first().image.path
             except goods.DoesNotExist:
                 pass
         
@@ -56,7 +58,10 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             # Формируем системное сообщение
             system_message = "Определи количество желтых звезд в отзыве и дату отзыва. "
             if product_image:
-                system_message += "Также проверь, соответствует ли отзыв изображенному товару. "
+                system_message += f"КРИТИЧНО: Сравни товар на скриншоте с товаром '{product_name}'. "
+                system_message += "Товары должны быть ОДИНАКОВЫМИ по типу, внешнему виду и функциональности. "
+                system_message += "Если товары РАЗНЫЕ (например, кроссовки vs гирлянда, телефон vs наушники), то это НЕ соответствие. "
+                system_message += "Обрати внимание на: цвет, форму, размер, тип товара, бренд, модель. "
             system_message += "Если желтых звезд меньше 5, укажи точное количество. Если 5 желтых звезд, напиши '5 звезд'. "
             system_message += "Если желтых звезд нет или это не отзыв, напиши 'нет звезд'. "
             system_message += "Если видишь дату отзыва, укажи её в формате ДД.ММ.ГГГГ. "
@@ -65,8 +70,9 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             system_message += "Если товаров несколько, напиши 'несколько товаров'. "
             system_message += "Если товар возвращен или отменен, напиши 'товар возвращен'. "
             if product_image:
-                system_message += "Если товар соответствует, напиши 'товар соответствует'. "
-                system_message += "Если не соответствует, напиши 'товар не соответствует'."
+                system_message += "Если товары ОДИНАКОВЫЕ, напиши 'товар соответствует'. "
+                system_message += "Если товары РАЗНЫЕ, напиши 'товар не соответствует'. "
+                system_message += "Если не уверен в сравнении, напиши 'не могу определить'."
             
             messages = [
                 {
@@ -78,11 +84,13 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                     "content": [
                         {
                             "type": "text",
-                            "text": "Проанализируй отзыв и товар. Отвечай кратко: количество желтых звезд, дата в формате "
-                                    "ДД.ММ.ГГГГ или 'нет даты', и соответствие товара если указано. "
+                            "text": "ВНИМАТЕЛЬНО проанализируй отзыв и сравни товары. "
+                                    "Отвечай кратко: количество желтых звезд, дата в формате "
+                                    "ДД.ММ.ГГГГ или 'нет даты', и точное соответствие товара. "
                                     "Если товар возвращен или отменен, укажи это. "
-                                    "Если дат несколько, используй последнюю."
-                                    "Если товаров несколько, то направляй на переотправку скриншота."
+                                    "Если дат несколько, используй последнюю. "
+                                    "Если товаров несколько, то направляй на переотправку скриншота. "
+                                    "При сравнении товаров будь СТРОГИМ - товары должны быть ОДИНАКОВЫМИ."
                         },
                         {
                             "type": "image_url",
@@ -143,8 +151,14 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             if product_image:
                 if "товар соответствует" in answer_lower:
                     product_match = True
-                elif "товар не соответствует" in answer_lower:
+                    logger.info(f"[VISION] Товар соответствует: {product_name}")
+                elif "товар не соответствует" in answer_lower or "не могу определить" in answer_lower:
                     product_match = False
+                    logger.info(f"[VISION] Товар НЕ соответствует: {product_name}")
+                else:
+                    # Если AI не дал четкого ответа о соответствии, считаем что товары не соответствуют
+                    product_match = False
+                    logger.warning(f"[VISION] Неопределенное соответствие товара: {product_name}, считаем как НЕ соответствует")
 
             # Проверяем наличие нескольких товаров
             has_multiple_products = "несколько товаров" in answer_lower
@@ -159,7 +173,9 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             
             # Формируем сообщение в зависимости от результатов
             message_parts = []
+            has_5_stars = False
 
+            # ПЕРВЫЙ ЭТАП: Проверяем базовые условия (звезды и возврат товара)
             if is_returned:
                 message_parts.append("Товар возвращен или отменен. Расширенная гарантия недоступна.")
                 has_5_stars = False
@@ -176,12 +192,17 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                 message_parts.append("Не удалось обнаружить звезды в отзыве. Пожалуйста, убедитесь, что на скриншоте отображается отзыв с рейтингом.")
                 has_5_stars = False
 
-            if product_image and not is_returned and not has_multiple_products:
+            # ВТОРОЙ ЭТАП: Если базовые условия пройдены, проверяем соответствие товара
+            if has_5_stars and not is_returned and not has_multiple_products and product_image:
                 if product_match is True:
                     message_parts.append("Товар в отзыве соответствует запрошенному.")
                 elif product_match is False:
-                    message_parts.append("Товар в отзыве не соответствует запрошенному. Пожалуйста, отправьте скриншот отзыва правильного товара.")
-                    has_5_stars = False
+                    message_parts.append(f"❌ Товар в отзыве НЕ соответствует запрошенному товару '{product_name}'. Пожалуйста, убедитесь, что вы отправляете скриншот отзыва именно этого товара.")
+                    has_5_stars = False  # КРИТИЧНО: Блокируем активацию если товары не похожи
+                elif product_match is None:
+                    # Если AI не смог определить соответствие, но у товара есть изображение
+                    message_parts.append(f"❓ Не удалось определить соответствие товара '{product_name}'. Пожалуйста, убедитесь, что отправляете скриншот отзыва правильного товара.")
+                    has_5_stars = False  # КРИТИЧНО: Блокируем активацию если не можем определить соответствие
 
             message = " ".join(message_parts)
             
