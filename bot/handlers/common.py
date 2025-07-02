@@ -21,6 +21,7 @@ from django.conf import settings
 from bot.utils.excel_handler import WarrantyExcelHandler
 from telebot import TeleBot
 import re
+from collections import defaultdict
 
 # Словарь для отслеживания процесса активации расширенной гарантии
 warranty_activation_state = {}
@@ -300,12 +301,22 @@ def show_product_menu(call: CallbackQuery) -> None:
             )
         else:
             # Если это обычное текстовое сообщение, редактируем его
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=f"Информация о товаре: {product.name}",
-                reply_markup=markup
-            )
+            try:
+                bot.edit_message_text(
+                    chat_id=call.message.chat.id,
+                    message_id=call.message.message_id,
+                    text=f"Информация о товаре: {product.name}",
+                    reply_markup=markup
+                )
+            except Exception as e:
+                # Если редактирование не удалось (например, сообщение не найдено), отправляем новое сообщение
+                print(f"[ERROR] Ошибка при редактировании сообщения: {e}")
+                logger.error(f"[ERROR] Ошибка при редактировании сообщения: {e}")
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text=f"Информация о товаре: {product.name}",
+                    reply_markup=markup
+                )
     
     except Exception as e:
         # В случае ошибки показываем сообщение об ошибке
@@ -465,9 +476,10 @@ def show_product_info(call: CallbackQuery) -> None:
         
         product = goods.objects.get(id=product_id)
         user = User.objects.get(telegram_id=call.message.chat.id)
-        warranty_data = user.warranty_data or {}
-        product_data = warranty_data.get(str(product_id), {})
-        has_warranty = product_data.get('is_active', False)
+        warranty_data = user.warranty_data or []
+        # Найти все активные гарантии на этот товар
+        product_warranties = [w for w in warranty_data if w.get('product_id') == product_id and w.get('status', 'Активна') == 'Активна']
+        has_warranty = bool(product_warranties)
 
         # Только для раздела "Гарантия" показываем кнопку активации
         if info_type == "warranty":
@@ -577,8 +589,6 @@ def show_product_info(call: CallbackQuery) -> None:
         elif info_type == "warranty":
             # Получаем документ с гарантией
             doc = product.documents.filter(document_type='warranty').first()
-            
-            # Форматируем срок гарантии для условий
             warranty_years = product.extended_warranty
             if warranty_years < 1:
                 months = int(warranty_years * 12)
@@ -591,21 +601,26 @@ def show_product_info(call: CallbackQuery) -> None:
                     warranty_period = f"{years} года"
                 else:
                     warranty_period = f"{years} лет"
-            
+
+            # Собираем все гарантии пользователя на этот товар
+            all_warranties = [w for w in warranty_data if w.get('product_id') == product_id]
+            # Кнопка для активации ещё одной гарантии всегда доступна
+            markup = InlineKeyboardMarkup()
+            activate_btn = InlineKeyboardButton("➕ Активировать ещё одну гарантию", callback_data=f"activate_warranty_{product_id}")
+            markup.add(activate_btn)
+            markup.add(InlineKeyboardButton("📋 Условия гарантии", callback_data="warranty_conditions"))
+            markup.add(InlineKeyboardButton("🛠️ Обратиться по гарантии", callback_data="warranty_cases"))
+            markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
             if has_warranty:
-                # Если у пользователя уже есть расширенная гарантия
-                product_info = product_data.get('info', {})
-                
+                # Если у пользователя уже есть одна или несколько гарантий
+                dates = [w.get('end_date', '-') for w in all_warranties]
+                dates_str = '\n'.join([f"• {d}" for d in dates])
                 text = (
-                    f"🛡️ Информация о расширенной гарантии на {product.name}:\n"
-                    f"📅 Дата активации: {product_info.get('activation_date', 'Не указана')}\n"
-                    f"⏳ Срок гарантии: {product_info.get('warranty_period', warranty_period)}\n"
-                    f"📆 Дата окончания: {product_info.get('end_date', 'Не указана')}"
+                    f"🛡️ У вас активировано {len(dates)} гарантий на {product.name}.\n"
+                    f"Даты окончания ваших гарантий:\n{dates_str}"
                 )
-                
                 if doc:
                     if doc.pdf_file and doc.text_content:
-                        # Если есть и PDF файл, и текст, отправляем их одним сообщением
                         full_text = f"{text}\n\n{doc.text_content}"
                         with open(doc.pdf_file.path, 'rb') as pdf:
                             bot.send_document(
@@ -615,7 +630,6 @@ def show_product_info(call: CallbackQuery) -> None:
                                 reply_markup=markup
                             )
                     elif doc.pdf_file:
-                        # Если есть только PDF файл
                         with open(doc.pdf_file.path, 'rb') as pdf:
                             bot.send_document(
                                 chat_id=call.message.chat.id,
@@ -624,7 +638,6 @@ def show_product_info(call: CallbackQuery) -> None:
                                 reply_markup=markup
                             )
                     elif doc.text_content:
-                        # Если есть только текст
                         bot.send_message(
                             chat_id=call.message.chat.id,
                             text=f"{text}\n\n{doc.text_content}",
@@ -640,7 +653,6 @@ def show_product_info(call: CallbackQuery) -> None:
                 # Если расширенной гарантии нет, показываем информацию о том, как её получить
                 if doc:
                     if doc.pdf_file and doc.text_content:
-                        # Если есть и PDF файл, и текст, отправляем их одним сообщением
                         text = (
                             f"✨ Как получить расширенную гарантию?\n\n"
                             f"1️⃣ Оставьте отзыв с 5 звездами о товаре\n"
@@ -658,7 +670,6 @@ def show_product_info(call: CallbackQuery) -> None:
                                 reply_markup=markup
                             )
                     elif doc.pdf_file:
-                        # Если есть только PDF файл
                         with open(doc.pdf_file.path, 'rb') as pdf:
                             bot.send_document(
                                 chat_id=call.message.chat.id,
@@ -667,7 +678,6 @@ def show_product_info(call: CallbackQuery) -> None:
                                 reply_markup=markup
                             )
                     elif doc.text_content:
-                        # Если есть только текст
                         text = (
                             f"🛡️ Условия гарантии на {product.name}:\n\n"
                             f"{doc.text_content}\n\n"
@@ -697,7 +707,6 @@ def show_product_info(call: CallbackQuery) -> None:
                         text=text,
                         reply_markup=markup
                     )
-                
         elif info_type == "support":
             text = SUPPORT_TEXT
             user = User.objects.get(telegram_id=call.message.chat.id)
@@ -1067,87 +1076,68 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
     """Активирует расширенную гарантию для пользователя"""
     try:
         print(f"[LOG] Активация расширенной гарантии для пользователя {chat_id} на товар {product_id}")
-        
         product = goods.objects.get(id=product_id)
         user = User.objects.get(telegram_id=chat_id)
-        
-        # Проверяем, активен ли товар
         if not product.is_active:
             error_text = "Товар неактивен. Расширенная гарантия недоступна."
             send_long_message(chat_id, error_text, message_id)
             return
-        
-        # Проверяем, не возвращен ли товар
         if product.is_returned:
             error_text = "Товар возвращен или отменен. Расширенная гарантия недоступна."
             send_long_message(chat_id, error_text, message_id)
             return
-        
-        warranty_data = user.warranty_data or {}
-        if isinstance(warranty_data, str):
-            warranty_data = json.loads(warranty_data)
-        
-        # Инициализируем структуру данных для товара, если её нет
-        if str(product_id) not in warranty_data:
-            warranty_data[str(product_id)] = {
-                'is_active': False,
-                'info': {},
-                'screenshot': None
-            }
-        
-        # Активируем гарантию
-        warranty_data[str(product_id)]['is_active'] = True
-        
-        # Определяем дату начала гарантии
+        warranty_data = user.warranty_data or []
+        if isinstance(warranty_data, dict):
+            migrated = []
+            for pid, data in warranty_data.items():
+                if isinstance(data, dict):
+                    info = data.get('info', {})
+                    migrated.append({
+                        'product_id': int(pid),
+                        'name': info.get('name', ''),
+                        'warranty_period': info.get('warranty_period', ''),
+                        'end_date': info.get('end_date', ''),
+                        'purchase_date': info.get('review_date', ''),
+                        'screenshot': data.get('screenshot'),
+                        'status': info.get('status', 'Активна')
+                    })
+            warranty_data = migrated
+        # Проверка на дублирование скриншота
+        if photo_id:
+            for w in warranty_data:
+                if w.get('product_id') == product.id and w.get('screenshot') and w['screenshot'].get('photo_id') == photo_id:
+                    error_text = "Вы уже использовали этот скриншот для активации гарантии по этому товару. Пожалуйста, отправьте другой скриншот."
+                    send_long_message(chat_id, error_text, message_id)
+                    return
         if review_date:
             try:
-                # Парсим дату из строки
                 start_date = timezone.datetime.strptime(review_date, "%d.%m.%Y")
             except ValueError:
-                # Если дата некорректная, используем текущую дату
                 start_date = timezone.now()
         else:
-            # Если дата отзыва не указана, используем текущую дату
             start_date = timezone.now()
             review_date = start_date.strftime("%d.%m.%Y")
-        
-        # Рассчитываем дату окончания гарантии
         warranty_years = product.extended_warranty
         end_date = start_date + timezone.timedelta(days=int(warranty_years * 365))
-        
-        # Форматируем даты
         start_date_str = start_date.strftime("%d.%m.%Y")
         end_date_str = end_date.strftime("%d.%m.%Y")
-        
-        # Форматируем срок гарантии
         if warranty_years.is_integer():
             warranty_text = f"{int(warranty_years)} {'год' if warranty_years == 1 else 'года' if 1 < warranty_years < 5 else 'лет'}"
         else:
             months = int(warranty_years * 12)
             warranty_text = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
-        
-        # Сохраняем информацию о товаре
         warranty_info = {
+            'product_id': product.id,
             'name': product.name,
-            'activation_date': start_date_str,
-            'end_date': end_date_str,
             'warranty_period': warranty_text,
-            'review_date': review_date,
+            'end_date': end_date_str,
+            'purchase_date': start_date_str,
+            'screenshot': {'photo_id': photo_id, 'upload_date': timezone.now().strftime("%d.%m.%Y %H:%M:%S")} if photo_id else None,
             'status': 'Активна'
         }
-        warranty_data[str(product_id)]['info'] = warranty_info
-        
-        # Сохраняем скриншот, если он есть
-        if photo_id:
-            warranty_data[str(product_id)]['screenshot'] = {
-                'photo_id': photo_id,
-                'upload_date': timezone.now().strftime("%d.%m.%Y %H:%M:%S")
-            }
-        
+        warranty_data.append(warranty_info)
         user.warranty_data = warranty_data
         user.save()
-
-        # Сохраняем информацию в Excel
         excel_handler = WarrantyExcelHandler()
         user_data = {
             'telegram_id': user.telegram_id,
@@ -1157,41 +1147,29 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
             'id': product.id,
             'name': product.name
         }
-        warranty_info['screenshot_id'] = photo_id
         excel_handler.add_warranty_record(user_data, product_data, warranty_info)
-        
         print(f"[LOG] Гарантия активирована для товара {product_id}")
-        
-        # Формируем сообщение об успешной активации
+        # Сообщение без даты активации
         success_text = (
             f"✅ Расширенная гарантия успешно активирована!\n\n"
             f"🛡️ Информация о расширенной гарантии на {product.name}:\n"
-            f"📅 Дата активации: {start_date_str}\n"
             f"⏳ Срок гарантии: {warranty_text}\n"
             f"📆 Дата окончания: {end_date_str}"
         )
-        
-        # Создаем клавиатуру с кнопкой возврата
+        # Кнопка для активации ещё одной гарантии
         markup = InlineKeyboardMarkup()
         back_btn = InlineKeyboardButton("⬅️ Вернуться к товару", callback_data=f"product_{product_id}")
+        activate_btn = InlineKeyboardButton("➕ Активировать ещё одну гарантию", callback_data=f"activate_warranty_{product_id}")
         markup.add(back_btn)
-        
-        # Отправляем сообщение об успешной активации
+        markup.add(activate_btn)
         send_long_message(chat_id, success_text, message_id, markup)
-        
-        # Удаляем состояние активации гарантии
         if chat_id in warranty_activation_state:
             del warranty_activation_state[chat_id]
-        
-        # Удаляем состояние ручного подтверждения, если оно было
         if chat_id in manual_confirmation_state:
             del manual_confirmation_state[chat_id]
-            
     except Exception as e:
         print(f"[ERROR] Ошибка при активации гарантии: {e}")
         logger.error(f"[ERROR] Ошибка при активации гарантии: {e}")
-        
-        # Отправляем сообщение об ошибке
         bot.send_message(
             chat_id=chat_id,
             text=f"Произошла ошибка при активации гарантии: {e}"
@@ -1270,100 +1248,51 @@ def show_my_warranties(call: CallbackQuery) -> None:
     """Показывает список товаров с активированной расширенной гарантией"""
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
-        warranty_data = user.warranty_data or {}
-        
-        if isinstance(warranty_data, str):
-            warranty_data = json.loads(warranty_data)
-        
-        # Фильтруем только активные гарантии
-        active_warranties = {
-            product_id: data 
-            for product_id, data in warranty_data.items() 
-            if data.get('is_active', False)
-        }
-        
-        if not active_warranties:
-            # Если нет активированных гарантий
-            text = "У вас пока нет активированных расширенных гарантий на товары."
-        else:
-            # Формируем список товаров с расширенной гарантией
-            text = "🛡️ Товары с активированной расширенной гарантией:\n\n"
-            current_date = timezone.now().date()
-            
-            for product_id, data in active_warranties.items():
-                try:
-                    product_info = data.get('info', {})
-                    if product_info:
-                        # Проверяем, не истек ли срок гарантии
-                        end_date = timezone.datetime.strptime(product_info['end_date'], "%d.%m.%Y").date()
-                        if current_date > end_date:
-                            status = "❌ Истекла"
-                        else:
-                            status = "✅ Активна"
-                            
-                        text += (
-                            f"{status}\n"
-                            f"📱 {product_info['name']}\n"
-                            f"⏳ Срок: {product_info['warranty_period']}\n"
-                            f"📅 Активация: {product_info['activation_date']}\n"
-                            f"📆 Окончание: {product_info['end_date']}\n\n"
-                        )
-                    else:
-                        # Если информация о товаре не найдена, пытаемся получить её из базы данных
-                        product = goods.objects.get(id=int(product_id))
-                        
-                        # Проверяем, не возвращен ли товар
-                        if product.is_returned:
-                            text += (
-                                f"❌ Возвращен\n"
-                                f"📱 {product.name}\n"
-                                f"ℹ️ Товар возвращен или отменен\n\n"
-                            )
-                            continue
-                        
-                        current_date = timezone.now()
-                        warranty_years = product.extended_warranty
-                        end_date = current_date + timezone.timedelta(days=int(warranty_years * 365))
-                        
-                        # Форматируем срок гарантии
-                        if warranty_years.is_integer():
-                            warranty_text = f"{int(warranty_years)} {'год' if warranty_years == 1 else 'года' if 1 < warranty_years < 5 else 'лет'}"
-                        else:
-                            months = int(warranty_years * 12)
-                            warranty_text = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
-                        
-                        product_info = {
-                            'name': product.name,
-                            'activation_date': current_date.strftime("%d.%m.%Y"),
-                            'end_date': end_date.strftime("%d.%m.%Y"),
-                            'warranty_period': warranty_text,
-                            'status': 'Активна'
-                        }
-                        
-                        text += (
-                            f"✅ Активна\n"
-                            f"📱 {product_info['name']}\n"
-                            f"⏳ Срок: {product_info['warranty_period']}\n"
-                            f"📅 Активация: {product_info['activation_date']}\n"
-                            f"📆 Окончание: {product_info['end_date']}\n\n"
-                        )
-                        
-                        # Сохраняем информацию для будущего использования
-                        warranty_data[str(product_id)]['info'] = product_info
-                except goods.DoesNotExist:
-                    continue
-            
-            # Сохраняем обновленную информацию
+        warranty_data = user.warranty_data or []
+        if isinstance(warranty_data, dict):
+            migrated = []
+            for pid, data in warranty_data.items():
+                if isinstance(data, dict):
+                    info = data.get('info', {})
+                    migrated.append({
+                        'product_id': int(pid),
+                        'name': info.get('name', ''),
+                        'warranty_period': info.get('warranty_period', ''),
+                        'end_date': info.get('end_date', ''),
+                        'purchase_date': info.get('review_date', ''),
+                        'screenshot': data.get('screenshot'),
+                        'status': info.get('status', 'Активна')
+                    })
+            warranty_data = migrated
             user.warranty_data = warranty_data
             user.save()
-        
+        active_warranties = [w for w in warranty_data if w.get('status', 'Активна') == 'Активна']
+        if not active_warranties:
+            text = "У вас пока нет активированных расширенных гарантий на товары."
+        else:
+            text = "🛡️ Ваши активированные расширенные гарантии:\n\n"
+            current_date = timezone.now().date()
+            # Группируем по товарам
+            grouped = defaultdict(list)
+            for w in active_warranties:
+                grouped[w['name']].append(w)
+            for name, warranties in grouped.items():
+                text += f"{name}:\n"
+                for idx, w in enumerate(warranties, 1):
+                    try:
+                        end_date = timezone.datetime.strptime(w['end_date'], "%d.%m.%Y").date()
+                        status = "✅ Активна" if current_date <= end_date else "❌ Истекла"
+                        text += (
+                            f"  {idx}. {status} | ⏳ Срок: {w['warranty_period']} | 📆 Окончание: {w['end_date']}\n"
+                        )
+                    except Exception:
+                        continue
+                text += "\n"
         markup = InlineKeyboardMarkup()
         warranty_case_btn = InlineKeyboardButton("🛠️ Гарантийный случай", callback_data="warranty_cases")
         back_btn = InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu")
         markup.add(warranty_case_btn)
         markup.add(back_btn)
-        
-        # Удаляем предыдущее сообщение
         try:
             bot.delete_message(
                 chat_id=call.message.chat.id,
@@ -1372,16 +1301,12 @@ def show_my_warranties(call: CallbackQuery) -> None:
         except Exception as e:
             print(f"[ERROR] Ошибка при удалении сообщения: {e}")
             logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
-        
-        # Отправляем текст с учетом возможной длины
         bot.send_message(
             chat_id=call.message.chat.id,
             text=text,
             reply_markup=markup
         )
-            
     except User.DoesNotExist:
-        # Если пользователь не найден, отправляем сообщение об ошибке
         bot.send_message(
             chat_id=call.message.chat.id,
             text="Произошла ошибка при получении информации о гарантиях. Пожалуйста, попробуйте позже.",
