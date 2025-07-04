@@ -172,7 +172,7 @@ def show_categories(chat_id: int, message_id: int = None) -> None:
 
 @disable_ai_mode
 def show_category_products(call: CallbackQuery) -> None:
-    """Показывает список товаров в категории"""
+    print(f"[DEBUG] call.data: {call.data}")
     try:
         parts = call.data.split('_')
         if len(parts) != 2:
@@ -477,6 +477,26 @@ def show_product_info(call: CallbackQuery) -> None:
         product = goods.objects.get(id=product_id)
         user = User.objects.get(telegram_id=call.message.chat.id)
         warranty_data = user.warranty_data or []
+        if isinstance(warranty_data, str):
+            try:
+                warranty_data = json.loads(warranty_data)
+            except Exception:
+                warranty_data = []
+        if isinstance(warranty_data, dict):
+            migrated = []
+            for pid, data in warranty_data.items():
+                if isinstance(data, dict):
+                    info = data.get('info', {})
+                    migrated.append({
+                        'product_id': int(pid),
+                        'name': info.get('name', ''),
+                        'warranty_period': info.get('warranty_period', ''),
+                        'end_date': info.get('end_date', ''),
+                        'purchase_date': info.get('review_date', ''),
+                        'screenshot': data.get('screenshot'),
+                        'status': info.get('status', 'Активна')
+                    })
+            warranty_data = migrated
         # Найти все активные гарантии на этот товар
         product_warranties = [w for w in warranty_data if w.get('product_id') == product_id and w.get('status', 'Активна') == 'Активна']
         has_warranty = bool(product_warranties)
@@ -537,7 +557,7 @@ def show_product_info(call: CallbackQuery) -> None:
                     markup.add(btn)
                 
                 # Добавляем кнопку назад
-                back_btn = InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu")
+                back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}")
                 markup.add(back_btn)
                 
                 text = f"❓ Часто задаваемые вопросы о {product.name}:\n\nВыберите интересующий вопрос:"
@@ -580,7 +600,7 @@ def show_product_info(call: CallbackQuery) -> None:
                 else:
                     text = f"❓ Часто задаваемые вопросы о {product.name} отсутствуют."
                     markup = InlineKeyboardMarkup()
-                    markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
+                    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
                     bot.send_message(
                         chat_id=call.message.chat.id,
                         text=text,
@@ -1926,13 +1946,12 @@ def handle_warranty_case(call: CallbackQuery) -> None:
 
 @disable_ai_mode
 def send_instruction_pdf(call: CallbackQuery, bot: TeleBot) -> None:
-    """Отправляет PDF файл инструкции"""
     try:
         instruction_id = int(call.data.split('_')[-1])
         instruction = FAQ.objects.get(id=instruction_id, is_active=True)
         
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_instructions_{instruction.product.id}"))
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{instruction.product.id}"))
         
         if instruction.pdf_file:
             with open(instruction.pdf_file.path, 'rb') as pdf:
@@ -1962,13 +1981,12 @@ def send_instruction_pdf(call: CallbackQuery, bot: TeleBot) -> None:
 
 @disable_ai_mode
 def send_faq_pdf(call: CallbackQuery, bot: TeleBot) -> None:
-    """Отправляет PDF файл FAQ"""
     try:
         faq_id = int(call.data.split('_')[-1])
         faq = FAQ.objects.get(id=faq_id, is_active=True)
         
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_faq_{faq.product.id}"))
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{faq.product.id}"))
         
         if faq.pdf_file:
             with open(faq.pdf_file.path, 'rb') as pdf:
