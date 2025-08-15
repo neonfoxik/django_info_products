@@ -6,7 +6,7 @@ from bot.texts import WARRANTY_CONDITIONS_TEXT
 from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup
 from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup, get_warranty_main_menu_markup
 from .registration import start_registration
-from bot.models import goods, goods_category, User, AdminContact, FAQ, ProductDocument
+from bot.models import goods, goods_category, User, AdminContact, FAQ
 from bot.apis import analyze_screenshot
 from bot.apis.ai import OpenAIAPI
 from functools import wraps
@@ -520,24 +520,12 @@ def show_product_info(call: CallbackQuery) -> None:
             logger.error(f"[ERROR] Ошибка при удалении сообщения: {e}")
         
         if info_type == "instructions":
-            # Получаем документ с инструкцией
-            doc = product.documents.filter(document_type='instructions').first()
-            if doc and doc.pdf_file:
-                # Отправляем PDF файл напрямую
-                with open(doc.pdf_file.path, 'rb') as pdf:
-                    bot.send_document(
-                        chat_id=call.message.chat.id,
-                        document=pdf,
-                        caption=f"📖 Инструкция по применению {product.name}",
-                        reply_markup=markup
-                    )
-            else:
-                text = f"📖 Инструкция для товара {product.name} отсутствует."
-                bot.send_message(
-                    chat_id=call.message.chat.id,
-                    text=text,
-                    reply_markup=markup
-                )
+            text = f"📖 Инструкция для товара {product.name} отсутствует."
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text=text,
+                reply_markup=markup
+            )
         elif info_type == "faq":
             # Получаем все активные FAQ для товара
             faqs = FAQ.objects.filter(
@@ -550,10 +538,18 @@ def show_product_info(call: CallbackQuery) -> None:
                 markup = InlineKeyboardMarkup()
                 
                 for faq in faqs:
-                    btn = InlineKeyboardButton(
-                        faq.title,
-                        callback_data=f"faq_pdf_{faq.id}"
-                    )
+                    if faq.link:
+                        # Если есть ссылка, создаем кнопку-ссылку
+                        btn = InlineKeyboardButton(
+                            f"🔗 {faq.title}",
+                            url=faq.link
+                        )
+                    else:
+                        # Если есть PDF файл, создаем кнопку для PDF
+                        btn = InlineKeyboardButton(
+                            faq.title,
+                            callback_data=f"faq_pdf_{faq.id}"
+                        )
                     markup.add(btn)
                 
                 # Добавляем кнопку назад
@@ -567,45 +563,13 @@ def show_product_info(call: CallbackQuery) -> None:
                     reply_markup=markup
                 )
             else:
-                # Если FAQ нет, проверяем старый формат (ProductDocument)
-                doc = product.documents.filter(document_type='faq').first()
-                if doc:
-                    if doc.pdf_file and doc.text_content:
-                        # Если есть и PDF файл, и текст, отправляем их одним сообщением
-                        text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
-                        with open(doc.pdf_file.path, 'rb') as pdf:
-                            bot.send_document(
-                                chat_id=call.message.chat.id,
-                                document=pdf,
-                                caption=text,
-                                reply_markup=markup
-                            )
-                    elif doc.pdf_file:
-                        # Если есть только PDF файл
-                        with open(doc.pdf_file.path, 'rb') as pdf:
-                            bot.send_document(
-                                chat_id=call.message.chat.id,
-                                document=pdf,
-                                caption=f"❓ Часто задаваемые вопросы о {product.name}",
-                                reply_markup=markup
-                            )
-                    elif doc.text_content:
-                        # Если есть только текст
-                        text = f"❓ Часто задаваемые вопросы о {product.name}:\n\n{doc.text_content}"
-                        bot.send_message(
-                            chat_id=call.message.chat.id,
-                            text=text,
-                            reply_markup=markup
-                        )
-                else:
-                    text = f"❓ Часто задаваемые вопросы о {product.name} отсутствуют."
-                    markup = InlineKeyboardMarkup()
-                    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
-                    bot.send_message(
-                        chat_id=call.message.chat.id,
-                        text=text,
-                        reply_markup=markup
-                    )
+                                # Если FAQ нет, отправляем сообщение об отсутствии
+                text = f"❓ Часто задаваемые вопросы о {product.name} отсутствуют."
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                                    text=text,
+                reply_markup=markup
+                )
         elif info_type == "warranty":
             # Получаем документ с гарантией
             doc = product.documents.filter(document_type='warranty').first()
@@ -2000,8 +1964,24 @@ def send_faq_pdf(call: CallbackQuery, bot: TeleBot) -> None:
                     caption=caption,
                     reply_markup=markup
                 )
+        elif faq.link:
+            # Если есть ссылка, отправляем сообщение со ссылкой
+            text = f"🔗 {faq.title}"
+            if faq.description:
+                text += f"\n\n{faq.description}"
+            text += f"\n\nСсылка: {faq.link}"
+            
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text=text,
+                reply_markup=markup
+            )
         else:
-            text = f"❓ {faq.title}\n\nПDF файл не найден."
+            text = f"❓ {faq.title}"
+            if faq.description:
+                text += f"\n\n{faq.description}"
+            text += "\n\nPDF файл и ссылка не найдены."
+            
             bot.send_message(
                 chat_id=call.message.chat.id,
                 text=text,

@@ -126,7 +126,14 @@ class FAQ(models.Model):
         verbose_name='PDF файл FAQ',
         blank=True,
         null=True,
-        help_text='Загрузите PDF файл.'
+        help_text='Загрузите PDF файл (необязательно).'
+    )
+    link = models.URLField(
+        max_length=500,
+        verbose_name='Ссылка',
+        blank=True,
+        null=True,
+        help_text='Ссылка для кнопки (необязательно).'
     )
     description = models.TextField(
         verbose_name='Описание',
@@ -184,49 +191,6 @@ class ProductImage(models.Model):
         verbose_name_plural = 'Изображения товаров'
         ordering = ['-created_at']
 
-class ProductDocument(models.Model):
-    DOCUMENT_TYPES = [
-        ('instructions', 'Инструкция'),
-        ('warranty', 'Гарантия'),
-        ('faq', 'FAQ'),
-    ]
-
-    product = models.ForeignKey(
-        'goods',
-        on_delete=models.CASCADE,
-        related_name='documents',
-        verbose_name='Товар'
-    )
-    document_type = models.CharField(
-        max_length=20,
-        choices=DOCUMENT_TYPES,
-        verbose_name='Тип документа'
-    )
-    pdf_file = models.FileField(
-        upload_to='products/documents/',
-        verbose_name='PDF документ',
-        null=True,
-        blank=True
-    )
-    text_content = models.TextField(
-        verbose_name='Текстовое содержимое',
-        null=True,
-        blank=True
-    )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name='Дата добавления'
-    )
-
-    def __str__(self):
-        return f"{self.get_document_type_display()} для {self.product.name}"
-
-    class Meta:
-        verbose_name = 'Документ товара'
-        verbose_name_plural = 'Документы товаров'
-        ordering = ['-created_at']
-        unique_together = ['product', 'document_type']
-
 class goods(models.Model):
     parent_category = models.ForeignKey(
         goods_category,
@@ -258,21 +222,6 @@ class goods(models.Model):
     class Meta:
         verbose_name = 'Название товара'
         verbose_name_plural = 'Названия товаров'
-
-    @property
-    def instructions(self):
-        doc = self.documents.filter(document_type='instructions').first()
-        return doc.text_content if doc else None
-
-    @property
-    def warranty(self):
-        doc = self.documents.filter(document_type='warranty').first()
-        return doc.text_content if doc else None
-
-    @property
-    def FAQ(self):
-        doc = self.documents.filter(document_type='faq').first()
-        return doc.text_content if doc else None
 
     @property
     def primary_image(self):
