@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User, goods_category, goods, ProductImage, AdminContact, FAQ
+from .models import User, goods_category, goods, ProductImage, AdminContact, FAQ, Instruction
 from django import forms
 
 class UserAdmin(admin.ModelAdmin):
@@ -49,12 +49,18 @@ class ProductImageInline(admin.TabularInline):
     extra = 1
     fields = ('image',)
 
+class InstructionInline(admin.TabularInline):
+    model = Instruction
+    extra = 1
+    fields = ('title', 'pdf_file', 'order', 'is_active')
+    ordering = ('order', 'title')
+
 class GoodsAdmin(admin.ModelAdmin):
     list_display = ('name', 'parent_category', 'extended_warranty', 'is_active')
     list_filter = ('parent_category', 'is_active')
     search_fields = ('name',)
     list_editable = ('is_active', 'extended_warranty')
-    inlines = [ProductImageInline, FAQInline]
+    inlines = [ProductImageInline, FAQInline, InstructionInline]
     fieldsets = (
         (None, {
             'fields': ('name', 'parent_category', 'is_active')
@@ -80,3 +86,4 @@ admin.site.register(goods_category, GoodsCategoryAdmin)
 admin.site.register(goods, GoodsAdmin)
 admin.site.register(FAQ, FAQAdmin)
 admin.site.register(AdminContact)
+admin.site.register(Instruction)

@@ -230,3 +230,47 @@ class goods(models.Model):
     @property
     def is_returned(self):
         return False
+
+class Instruction(models.Model):
+    """Модель для хранения инструкций к товарам"""
+    product = models.ForeignKey(
+        'goods',
+        on_delete=models.CASCADE,
+        related_name='instructions',
+        verbose_name='Товар'
+    )
+    title = models.CharField(
+        max_length=255,
+        verbose_name='Название инструкции',
+        help_text='Введите название инструкции.'
+    )
+    pdf_file = models.FileField(
+        upload_to='instructions/',
+        verbose_name='PDF файл инструкции',
+        help_text='Загрузите PDF файл инструкции.'
+    )
+    order = models.PositiveIntegerField(
+        verbose_name='Порядок отображения',
+        default=0,
+        help_text='Чем меньше число, тем выше в списке.'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Активна'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
+
+    def __str__(self):
+        return f"{self.title} - {self.product.name}"
+
+    class Meta:
+        verbose_name = 'Инструкция'
+        verbose_name_plural = 'Инструкции'
+        ordering = ['product', 'order', 'title']
