@@ -10,8 +10,16 @@ from django.contrib.auth.models import User
 # Главное меню
 main_markup = InlineKeyboardMarkup()
 btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog")
+btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="help_main")
 btn3 = InlineKeyboardButton("🛡️ Гарантия", callback_data="warranty_main_menu")
-main_markup.add(btn1).add(btn3)
+main_markup.add(btn1).add(btn2).add(btn3)
+
+# Клавиатура для выбора типа поддержки
+support_markup = InlineKeyboardMarkup()
+support_ozon_btn = InlineKeyboardButton("🟠 Поддержка Озон", callback_data="help_ozon")
+support_wb_btn = InlineKeyboardButton("🟣 Поддержка Вайлдберриз", callback_data="help_wildberries")
+back_support_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
+support_markup.add(support_ozon_btn).add(support_wb_btn).add(back_support_btn)
 
 # Клавиатура для возврата в главное меню
 back_to_main_markup = InlineKeyboardMarkup()

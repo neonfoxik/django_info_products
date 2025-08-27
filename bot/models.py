@@ -64,16 +64,16 @@ class User(models.Model):
         verbose_name = 'Пользователь'
         verbose_name_plural = 'Пользователи'
 
-class AdminContact(models.Model):
-    admin_contact = models.CharField(
+class Support(models.Model):
+    admin_ozon = models.CharField(
         max_length=255,
-        verbose_name='Контакт администратора',
-        default='Для связи с администратором напишите на email: admin@example.com'
+        verbose_name='Админ Озон',
+        default='Для связи с администратором Озон напишите на email: ozon@example.com'
     )
-    support_contact = models.CharField(
+    admin_wildberries = models.CharField(
         max_length=255,
-        verbose_name='Контакт поддержки',
-        default='Для связи с поддержкой напишите на email: support@example.com'
+        verbose_name='Админ Вайлдберриз',
+        default='Для связи с администратором Вайлдберриз напишите на email: wildberries@example.com'
     )
     is_active = models.BooleanField(
         default=True,
@@ -89,11 +89,11 @@ class AdminContact(models.Model):
     )
 
     def __str__(self):
-        return f"Контакты администратора (обновлены: {self.updated_at.strftime('%d.%m.%Y %H:%M')})"
+        return f"Контакты поддержки (обновлены: {self.updated_at.strftime('%d.%m.%Y %H:%M')})"
 
     class Meta:
-        verbose_name = 'Контакт администратора'
-        verbose_name_plural = 'Контакты администраторов'
+        verbose_name = 'Контакты поддержки'
+        verbose_name_plural = 'Контакты поддержки'
         ordering = ['-updated_at']
 
 class goods_category(models.Model):

@@ -23,7 +23,7 @@ from bot.handlers import (
     send_product_instruction_pdf,
     request_contact_for_warranty, process_warranty_case_contact,
     show_warranty_main_menu, show_warranty_conditions, show_warranty_activation_menu,
-    waranty_goods_fast
+    waranty_goods_fast, support_main_menu, support_ozon, support_wildberries
 )
 
 
@@ -107,7 +107,7 @@ back_to_categories_handler = bot.callback_query_handler(lambda c: c.data == "bac
 instructions_handler = bot.callback_query_handler(lambda c: c.data.startswith("instructions_"))(show_product_info)
 faq_handler = bot.callback_query_handler(lambda c: c.data.startswith("faq_"))(show_product_info)
 warranty_info_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_") and not c.data.startswith("warranty_main") and not c.data.startswith("warranty_conditions") and not c.data.startswith("warranty_activation") and c.data != "warranty_cases")(show_product_info)
-support_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_"))(show_product_info)
+support_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_") and c.data.split('_')[1].isdigit())(show_product_info)
 
 # Обработчики для расширенной гарантии
 activate_warranty_handler = bot.callback_query_handler(lambda c: c.data.startswith("activate_warranty_"))(activate_warranty)
@@ -138,4 +138,9 @@ warranty_activation_menu_handler = bot.callback_query_handler(lambda c: c.data =
 
 # Обработчик для быстрой активации гарантии
 warranty_goods_fast_handler = bot.callback_query_handler(lambda c: c.data == "waranty_goods_fast")(waranty_goods_fast)
+
+# Обработчики для поддержки
+support_main_handler = bot.callback_query_handler(lambda c: c.data == "help_main")(support_main_menu)
+support_ozon_handler = bot.callback_query_handler(lambda c: c.data == "help_ozon")(support_ozon)
+support_wildberries_handler = bot.callback_query_handler(lambda c: c.data == "help_wildberries")(support_wildberries)
 

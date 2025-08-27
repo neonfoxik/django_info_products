@@ -28,7 +28,10 @@ from .common import (
     show_warranty_main_menu,
     show_warranty_conditions,
     show_warranty_activation_menu,
-    waranty_goods_fast
+    waranty_goods_fast,
+    support_main_menu,
+    support_ozon,
+    support_wildberries
 )
 
 from .registration import start_registration
@@ -85,6 +88,12 @@ def handle_callback(call: CallbackQuery) -> None:
             send_excel_to_admin(call)
         elif call.data == "catalog":
             show_categories(call.message.chat.id, call.message.message_id)
+        elif call.data == "help_main":
+            support_main_menu(call)
+        elif call.data == "help_ozon":
+            support_ozon(call)
+        elif call.data == "help_wildberries":
+            support_wildberries(call)
         elif call.data == "category_header":
             # Заголовки категорий - просто игнорируем нажатие
             bot.answer_callback_query(

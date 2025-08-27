@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User, goods_category, goods, ProductImage, AdminContact, FAQ, Instruction
+from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction
 from django import forms
 
 class UserAdmin(admin.ModelAdmin):
@@ -85,5 +85,5 @@ admin.site.register(User, UserAdmin)
 admin.site.register(goods_category, GoodsCategoryAdmin)
 admin.site.register(goods, GoodsAdmin)
 admin.site.register(FAQ, FAQAdmin)
-admin.site.register(AdminContact)
+admin.site.register(Support)
 admin.site.register(Instruction)

@@ -6,7 +6,7 @@ from bot.texts import WARRANTY_CONDITIONS_TEXT
 from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup
 from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup, get_warranty_main_menu_markup
 from .registration import start_registration
-from bot.models import goods, goods_category, User, AdminContact, FAQ, Instruction
+from bot.models import goods, goods_category, User, Support, FAQ, Instruction
 from bot.apis import analyze_screenshot
 from bot.apis.ai import OpenAIAPI
 from functools import wraps
@@ -1264,7 +1264,6 @@ def show_my_warranties(call: CallbackQuery) -> None:
         )
 
 @disable_ai_mode
-@bot.callback_query_handler(func=lambda call: call.data.startswith('support_'))
 def product_support(call: CallbackQuery) -> None:
     """Обработчик для кнопки поддержки в меню товара"""
     try:
@@ -2575,5 +2574,82 @@ def waranty_goods_fast(call: CallbackQuery):
             message_id=call.message.message_id,
             text="Произошла ошибка при загрузке товаров. Пожалуйста, попробуйте позже.",
             reply_markup=markup
+        )
+
+@disable_ai_mode
+def support_main_menu(call: CallbackQuery) -> None:
+    """Показать главное меню поддержки"""
+    from bot.texts import SUPPORT_MAIN_TEXT
+    from bot.keyboards import support_markup
+    
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=SUPPORT_MAIN_TEXT,
+        reply_markup=support_markup
+    )
+
+@disable_ai_mode
+def support_ozon(call: CallbackQuery) -> None:
+    """Показать контакты поддержки Озон"""
+    from bot.texts import SUPPORT_OZON_TEXT
+    from bot.keyboards import back_to_main_markup
+    
+    try:
+        support = Support.objects.filter(is_active=True).first()
+        if support:
+            admin_ozon = support.admin_ozon
+        else:
+            admin_ozon = "Для связи с администратором Озон напишите на email: ozon@example.com"
+        
+        text = f"{SUPPORT_OZON_TEXT}\n\n{admin_ozon}"
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=back_to_main_markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе поддержки Озон: {e}")
+        logger.error(f"[ERROR] Ошибка при показе поддержки Озон: {e}")
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Произошла ошибка при загрузке контактов поддержки. Пожалуйста, попробуйте позже.",
+            reply_markup=back_to_main_markup
+        )
+
+@disable_ai_mode
+def support_wildberries(call: CallbackQuery) -> None:
+    """Показать контакты поддержки Вайлдберриз"""
+    from bot.texts import SUPPORT_WILDBERRIES_TEXT
+    from bot.keyboards import back_to_main_markup
+    
+    try:
+        support = Support.objects.filter(is_active=True).first()
+        if support:
+            admin_wildberries = support.admin_wildberries
+        else:
+            admin_wildberries = "Для связи с администратором Вайлдберриз напишите на email: wildberries@example.com"
+        
+        text = f"{SUPPORT_WILDBERRIES_TEXT}\n\n{admin_wildberries}"
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=back_to_main_markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе поддержки Вайлдберриз: {e}")
+        logger.error(f"[ERROR] Ошибка при показе поддержки Вайлдберриз: {e}")
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Произошла ошибка при загрузке контактов поддержки. Пожалуйста, попробуйте позже.",
+            reply_markup=back_to_main_markup
         )
     
