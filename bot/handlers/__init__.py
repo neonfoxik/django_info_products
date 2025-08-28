@@ -31,7 +31,10 @@ from .common import (
     waranty_goods_fast,
     support_main_menu,
     support_ozon,
-    support_wildberries
+    support_wildberries,
+    warranty_case_platform_choice,
+    warranty_case_ozon,
+    warranty_case_wildberries
 )
 
 from .registration import start_registration
@@ -56,6 +59,10 @@ def handle_callback(call: CallbackQuery) -> None:
             waranty_goods_fast(call)
         elif call.data == "warranty_cases":
             show_warranty_cases(call)
+        elif call.data.startswith("warranty_case_ozon"):
+            warranty_case_ozon(call)
+        elif call.data.startswith("warranty_case_wb"):
+            warranty_case_wildberries(call)
         elif call.data.startswith("warranty_case_"):
             handle_warranty_case(call)
         elif call.data.startswith("atwarranty_case_"):

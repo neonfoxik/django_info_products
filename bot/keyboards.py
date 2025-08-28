@@ -21,6 +21,23 @@ support_wb_btn = InlineKeyboardButton("🟣 Поддержка Вайлдбер�
 back_support_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
 support_markup.add(support_ozon_btn).add(support_wb_btn).add(back_support_btn)
 
+# Клавиатура для выбора платформы покупки
+def get_platform_choice_markup(action_type, product_id=None):
+    """Создает клавиатуру для выбора платформы покупки товара"""
+    markup = InlineKeyboardMarkup()
+    
+    if product_id:
+        ozon_btn = InlineKeyboardButton("🟠 Озон", callback_data=f"{action_type}_ozon_{product_id}")
+        wb_btn = InlineKeyboardButton("🟣 Вайлдберриз", callback_data=f"{action_type}_wb_{product_id}")
+    else:
+        ozon_btn = InlineKeyboardButton("🟠 Озон", callback_data=f"{action_type}_ozon")
+        wb_btn = InlineKeyboardButton("🟣 Вайлдберриз", callback_data=f"{action_type}_wb")
+    
+    back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
+    
+    markup.add(ozon_btn).add(wb_btn).add(back_btn)
+    return markup
+
 # Клавиатура для возврата в главное меню
 back_to_main_markup = InlineKeyboardMarkup()
 back_btn = InlineKeyboardButton("⬅️ Вернуться в главное меню", callback_data="back_to_main")

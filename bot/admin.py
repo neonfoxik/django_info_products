@@ -80,6 +80,8 @@ class GoodsAdmin(admin.ModelAdmin):
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
 
+
+
 # Регистрируем модели в админ-панели
 admin.site.register(User, UserAdmin)
 admin.site.register(goods_category, GoodsCategoryAdmin)

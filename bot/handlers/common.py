@@ -1766,76 +1766,18 @@ def admin_command(message: Message) -> None:
 
 @disable_ai_mode
 def show_warranty_cases(call: CallbackQuery) -> None:
-    """Показывает список товаров с активной гарантией для создания гарантийного случая"""
-    try:
-        user = User.objects.get(telegram_id=call.message.chat.id)
-        warranty_data = user.warranty_data or []
-        
-        if isinstance(warranty_data, str):
-            warranty_data = json.loads(warranty_data)
-        
-        # Преобразуем старый формат в новый, если нужно
-        if isinstance(warranty_data, dict):
-            migrated = []
-            for pid, data in warranty_data.items():
-                if isinstance(data, dict):
-                    info = data.get('info', {})
-                    migrated.append({
-                        'product_id': int(pid),
-                        'name': info.get('name', ''),
-                        'warranty_period': info.get('warranty_period', ''),
-                        'end_date': info.get('end_date', ''),
-                        'purchase_date': info.get('review_date', ''),
-                        'screenshot': data.get('screenshot'),
-                        'status': info.get('status', 'Активна')
-                    })
-            warranty_data = migrated
-            user.warranty_data = warranty_data
-            user.save()
-        
-        # Фильтруем только активные гарантии
-        active_warranties = [
-            w for w in warranty_data
-            if w.get('status', 'Активна') == 'Активна'
-        ]
-        
-        if not active_warranties:
-            bot.answer_callback_query(
-                callback_query_id=call.id,
-                text="У вас нет активных гарантий.",
-                show_alert=True
-            )
-            return
-        
-        # Создаем клавиатуру с товарами
-        markup = InlineKeyboardMarkup()
-        for warranty in active_warranties:
-            product_id = warranty.get('product_id')
-            product_name = warranty.get('name', 'Неизвестный товар')
-            end_date = warranty.get('end_date', 'Дата не указана')
-            
-            button_text = f"{product_name} (до {end_date})"
-            callback_data = f"warranty_case_{product_id}"
-            markup.add(InlineKeyboardButton(button_text, callback_data=callback_data))
-        
-        # Добавляем кнопку возврата
-        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="warranty_menu"))
-        
-        # Отправляем сообщение
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text="Выберите товар для создания гарантийного случая:",
-            reply_markup=markup
-        )
-    except Exception as e:
-        print(f"[ERROR] Ошибка при показе списка товаров для гарантийного случая: {e}")
-        logger.error(f"[ERROR] Ошибка при показе списка товаров для гарантийного случая: {e}")
-        bot.answer_callback_query(
-            callback_query_id=call.id,
-            text="Произошла ошибка при загрузке списка товаров. Пожалуйста, попробуйте снова.",
-            show_alert=True
-        )
+    """Показывает выбор платформы для создания гарантийного случая"""
+    from bot.texts import PLATFORM_CHOICE_WARRANTY_TEXT
+    from bot.keyboards import get_platform_choice_markup
+    
+    markup = get_platform_choice_markup("warranty_case")
+    
+    bot.edit_message_text(
+        chat_id=call.message.chat.id,
+        message_id=call.message.message_id,
+        text=PLATFORM_CHOICE_WARRANTY_TEXT,
+        reply_markup=markup
+    )
 
 @disable_ai_mode
 def handle_warranty_case(call: CallbackQuery) -> None:
@@ -2652,4 +2594,81 @@ def support_wildberries(call: CallbackQuery) -> None:
             text="Произошла ошибка при загрузке контактов поддержки. Пожалуйста, попробуйте позже.",
             reply_markup=back_to_main_markup
         )
+
+
+
+@disable_ai_mode
+def warranty_case_platform_choice(call: CallbackQuery) -> None:
+    """Показать выбор платформы для гарантийного случая"""
+    from bot.texts import PLATFORM_CHOICE_WARRANTY_TEXT
+    from bot.keyboards import get_platform_choice_markup
+    
+    # Извлекаем product_id из callback_data
+    try:
+        parts = call.data.split('_')
+        if len(parts) >= 3:
+            product_id = parts[2]
+            markup = get_platform_choice_markup("warranty_case", product_id)
+        else:
+            markup = get_platform_choice_markup("warranty_case")
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=PLATFORM_CHOICE_WARRANTY_TEXT,
+            reply_markup=markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при выборе платформы для гарантийного случая: {e}")
+        logger.error(f"[ERROR] Ошибка при выборе платформы для гарантийного случая: {e}")
+
+@disable_ai_mode
+def warranty_case_ozon(call: CallbackQuery) -> None:
+    """Обработка гарантийного случая для Озон"""
+    from bot.texts import SUPPORT_OZON_TEXT
+    from bot.keyboards import back_to_main_markup
+    
+    try:
+        support = Support.objects.filter(is_active=True).first()
+        if support:
+            admin_ozon = support.admin_ozon
+        else:
+            admin_ozon = "Для связи с администратором Озон напишите на email: ozon@transpeed.com"
+        
+        text = f"🛡️ Гарантийный случай - Озон\n\n{admin_ozon}\n\n📝 Опишите вашу проблему с товаром и отправьте сообщение менеджеру Озон."
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=back_to_main_markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при обработке гарантийного случая Озон: {e}")
+        logger.error(f"[ERROR] Ошибка при обработке гарантийного случая Озон: {e}")
+
+@disable_ai_mode
+def warranty_case_wildberries(call: CallbackQuery) -> None:
+    """Обработка гарантийного случая для Вайлдберриз"""
+    from bot.texts import SUPPORT_WILDBERRIES_TEXT
+    from bot.keyboards import back_to_main_markup
+    
+    try:
+        support = Support.objects.filter(is_active=True).first()
+        if support:
+            admin_wildberries = support.admin_wildberries
+        else:
+            admin_wildberries = "Для связи с администратором Вайлдберриз напишите на email: wildberries@transpeed.com"
+        
+        text = f"🛡️ Гарантийный случай - Вайлдберриз\n\n{admin_wildberries}\n\n📝 Опишите вашу проблему с товаром и отправьте сообщение менеджеру Вайлдберриз."
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=text,
+            reply_markup=back_to_main_markup
+        )
+    except Exception as e:
+        print(f"[ERROR] Ошибка при обработке гарантийного случая Вайлдберриз: {e}")
+        logger.error(f"[ERROR] Ошибка при обработке гарантийного случая Вайлдберриз: {e}")
     

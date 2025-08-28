@@ -23,7 +23,8 @@ from bot.handlers import (
     send_product_instruction_pdf,
     request_contact_for_warranty, process_warranty_case_contact,
     show_warranty_main_menu, show_warranty_conditions, show_warranty_activation_menu,
-    waranty_goods_fast, support_main_menu, support_ozon, support_wildberries
+    waranty_goods_fast, support_main_menu, support_ozon, support_wildberries,
+    warranty_case_platform_choice, warranty_case_ozon, warranty_case_wildberries
 )
 
 
@@ -143,4 +144,10 @@ warranty_goods_fast_handler = bot.callback_query_handler(lambda c: c.data == "wa
 support_main_handler = bot.callback_query_handler(lambda c: c.data == "help_main")(support_main_menu)
 support_ozon_handler = bot.callback_query_handler(lambda c: c.data == "help_ozon")(support_ozon)
 support_wildberries_handler = bot.callback_query_handler(lambda c: c.data == "help_wildberries")(support_wildberries)
+
+
+
+# Обработчики для гарантийных случаев с выбором платформы
+warranty_case_ozon_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_case_ozon"))(warranty_case_ozon)
+warranty_case_wb_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_case_wb"))(warranty_case_wildberries)
 

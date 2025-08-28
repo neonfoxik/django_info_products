@@ -96,6 +96,8 @@ class Support(models.Model):
         verbose_name_plural = 'Контакты поддержки'
         ordering = ['-updated_at']
 
+
+
 class goods_category(models.Model):
     name = models.CharField(
         max_length=100,
