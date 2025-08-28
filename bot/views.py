@@ -107,7 +107,7 @@ back_to_categories_handler = bot.callback_query_handler(lambda c: c.data == "bac
 # Обработчики для информации о товаре
 instructions_handler = bot.callback_query_handler(lambda c: c.data.startswith("instructions_"))(show_product_info)
 faq_handler = bot.callback_query_handler(lambda c: c.data.startswith("faq_"))(show_product_info)
-warranty_info_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_") and not c.data.startswith("warranty_main") and not c.data.startswith("warranty_conditions") and not c.data.startswith("warranty_activation") and c.data != "warranty_cases")(show_product_info)
+warranty_info_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_") and not c.data.startswith("warranty_main") and not c.data.startswith("warranty_conditions") and not c.data.startswith("warranty_activation") and not c.data.startswith("warranty_case") and c.data != "warranty_cases")(show_product_info)
 support_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_") and c.data.split('_')[1].isdigit())(show_product_info)
 
 # Обработчики для расширенной гарантии

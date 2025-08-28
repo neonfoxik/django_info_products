@@ -73,7 +73,7 @@ def handle_callback(call: CallbackQuery) -> None:
             send_instruction_pdf(call)
         elif call.data.startswith("product_instruction_pdf_"):
             send_product_instruction_pdf(call)
-        elif call.data.startswith("instructions_") or call.data.startswith("faq_") or call.data.startswith("warranty_"):
+        elif call.data.startswith("instructions_") or call.data.startswith("faq_") or (call.data.startswith("warranty_") and not call.data.startswith("warranty_case")):
             show_product_info(call)
         elif call.data.startswith("category_"):
             show_category_products(call)
