@@ -56,6 +56,13 @@ class User(models.Model):
         blank=True,
         verbose_name='ID последнего сообщения'
     )
+    received_promocode = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        verbose_name='Полученный промокод',
+        help_text='Промокод, который получил пользователь'
+    )
 
     def __str__(self):
         return str(self.user_name)
@@ -276,3 +283,243 @@ class Instruction(models.Model):
         verbose_name = 'Инструкция'
         verbose_name_plural = 'Инструкции'
         ordering = ['product', 'order', 'title']
+
+
+class SupportTicket(models.Model):
+    """Модель для хранения обращений в службу поддержки"""
+    STATUS_CHOICES = [
+        ('open', 'Открыто'),
+        ('in_progress', 'В обработке'),
+        ('closed', 'Закрыто'),
+    ]
+    
+    PLATFORM_CHOICES = [
+        ('ozon', 'Озон'),
+        ('wildberries', 'Вайлдберриз'),
+    ]
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='support_tickets',
+        verbose_name='Пользователь'
+    )
+    platform = models.CharField(
+        max_length=20,
+        choices=PLATFORM_CHOICES,
+        verbose_name='Платформа',
+        help_text='Платформа, по которой было создано обращение'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='open',
+        verbose_name='Статус'
+    )
+    assigned_admin = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_tickets',
+        verbose_name='Назначенный администратор',
+        limit_choices_to={'is_admin': True}
+    )
+    subject = models.CharField(
+        max_length=255,
+        verbose_name='Тема обращения',
+        default='Обращение в службу поддержки'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
+    closed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Дата закрытия'
+    )
+    first_admin_notification_sent = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Время отправки первого уведомления админам'
+    )
+    second_admin_notification_sent = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Время отправки второго уведомления админам'
+    )
+    owner_notification_sent = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Время отправки уведомления владельцу'
+    )
+
+    def __str__(self):
+        return f"Обращение #{self.id} от {self.user.user_name} ({self.get_platform_display()})"
+
+    class Meta:
+        verbose_name = 'Обращение в поддержку'
+        verbose_name_plural = 'Обращения в поддержку'
+        ordering = ['-created_at']
+
+
+class SupportMessage(models.Model):
+    """Модель для хранения сообщений в обращениях поддержки"""
+    SENDER_CHOICES = [
+        ('user', 'Пользователь'),
+        ('admin', 'Администратор'),
+    ]
+    
+    ticket = models.ForeignKey(
+        SupportTicket,
+        on_delete=models.CASCADE,
+        related_name='messages',
+        verbose_name='Обращение'
+    )
+    sender = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        verbose_name='Отправитель'
+    )
+    sender_type = models.CharField(
+        max_length=10,
+        choices=SENDER_CHOICES,
+        verbose_name='Тип отправителя'
+    )
+    message_text = models.TextField(
+        verbose_name='Текст сообщения'
+    )
+    telegram_message_id = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        verbose_name='ID сообщения в Telegram'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата отправки'
+    )
+
+    def __str__(self):
+        return f"Сообщение от {self.sender.user_name} в обращении #{self.ticket.id}"
+
+    class Meta:
+        verbose_name = 'Сообщение поддержки'
+        verbose_name_plural = 'Сообщения поддержки'
+        ordering = ['created_at']
+
+
+class OwnerSettings(models.Model):
+    """Модель для хранения настроек владельца (для уведомлений)"""
+    owner_telegram_id = models.CharField(
+        max_length=50,
+        unique=True,
+        verbose_name='Telegram ID владельца'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Активен'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
+
+    def __str__(self):
+        return f"Настройки владельца {self.owner_telegram_id}"
+
+    class Meta:
+        verbose_name = 'Настройки владельца'
+        verbose_name_plural = 'Настройки владельца'
+
+
+class BroadcastMessage(models.Model):
+    """Модель для хранения и отправки рассылок пользователям"""
+    title = models.CharField(
+        max_length=255,
+        verbose_name='Заголовок'
+    )
+    text = models.TextField(
+        verbose_name='Текст сообщения'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Создано'
+    )
+    is_sent = models.BooleanField(
+        default=False,
+        verbose_name='Отправлено'
+    )
+    sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Время отправки'
+    )
+
+    def __str__(self):
+        return f"{self.title} ({'отправлено' if self.is_sent else 'не отправлено'})"
+
+    class Meta:
+        verbose_name = 'Рассылка'
+        verbose_name_plural = 'Рассылки'
+
+
+class PromoCode(models.Model):
+    """Модель для хранения промокодов"""
+    code = models.CharField(
+        max_length=50,
+        unique=True,
+        verbose_name='Промокод',
+        help_text='Уникальный код промокода'
+    )
+    is_used = models.BooleanField(
+        default=False,
+        verbose_name='Использован',
+        help_text='Был ли промокод использован'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Активен',
+        help_text='Активен ли промокод'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='Создан администратором',
+        help_text='Администратор, который создал промокод'
+    )
+
+    def __str__(self):
+        return f"{self.code} ({'использован' if self.is_used else 'активен' if self.is_active else 'неактивен'})"
+
+    def can_be_used(self):
+        """Проверяет, можно ли использовать промокод"""
+        return self.is_active and not self.is_used
+
+    def use(self):
+        """Использует промокод (помечает как использованный)"""
+        if self.can_be_used():
+            self.is_used = True
+            self.save()
+            return True
+        return False
+
+    class Meta:
+        verbose_name = 'Промокод'
+        verbose_name_plural = 'Промокоды'
+        ordering = ['-created_at']

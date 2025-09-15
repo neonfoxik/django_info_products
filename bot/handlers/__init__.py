@@ -38,6 +38,16 @@ from .common import (
 )
 
 from .registration import start_registration
+from .support import (
+    show_support_menu, start_support_ozon, start_support_wildberries,
+    close_support_ticket, accept_support_ticket, finish_ticket_processing,
+    view_ticket_details, already_assigned_callback, admin_list_open_tickets,
+    admin_start_broadcast, admin_broadcast_confirm, send_broadcast_to_all_users
+)
+from .promocodes import (
+    promocode_menu, promocode_add, promocode_list, promocode_detail,
+    promocode_toggle, promocode_delete, get_user_promocode
+)
 
 from telebot.types import CallbackQuery
 from bot import bot, logger
@@ -45,6 +55,9 @@ from bot import bot, logger
 def handle_callback(call: CallbackQuery) -> None:
     """Обработчик callback-запросов"""
     try:
+        print(f"[DEBUG] Получен callback: {call.data} от пользователя {call.message.chat.id}")
+        logger.info(f"[DEBUG] Получен callback: {call.data} от пользователя {call.message.chat.id}")
+        
         if call.data == "menu":
             menu_call(call)
         elif call.data == "my_warranties":
@@ -96,11 +109,45 @@ def handle_callback(call: CallbackQuery) -> None:
         elif call.data == "catalog":
             show_categories(call.message.chat.id, call.message.message_id)
         elif call.data == "help_main":
-            support_main_menu(call)
+            show_support_menu(call)
+        elif call.data == "support_ozon":
+            start_support_ozon(call)
+        elif call.data == "support_wildberries":
+            start_support_wildberries(call)
+        elif call.data == "close_ticket":
+            close_support_ticket(call)
+        elif call.data.startswith("accept_ticket_"):
+            accept_support_ticket(call)
+        elif call.data.startswith("finish_ticket_"):
+            finish_ticket_processing(call)
+        elif call.data.startswith("view_ticket_"):
+            view_ticket_details(call)
+        elif call.data == "already_assigned":
+            already_assigned_callback(call)
         elif call.data == "help_ozon":
-            support_ozon(call)
+            start_support_ozon(call)
         elif call.data == "help_wildberries":
-            support_wildberries(call)
+            start_support_wildberries(call)
+        elif call.data == "admin_open_tickets":
+            admin_list_open_tickets(call)
+        elif call.data == "admin_broadcast":
+            admin_start_broadcast(call)
+        elif call.data in ("broadcast_confirm", "broadcast_cancel"):
+            admin_broadcast_confirm(call)
+        elif call.data == "promocode_menu":
+            promocode_menu(call)
+        elif call.data == "promocode_add":
+            promocode_add(call)
+        elif call.data == "promocode_list":
+            promocode_list(call)
+        elif call.data.startswith("promocode_detail_"):
+            promocode_detail(call)
+        elif call.data.startswith("promocode_toggle_"):
+            promocode_toggle(call)
+        elif call.data.startswith("promocode_delete_"):
+            promocode_delete(call)
+        elif call.data == "get_promocode":
+            get_user_promocode(call)
         elif call.data == "category_header":
             # Заголовки категорий - просто игнорируем нажатие
             bot.answer_callback_query(

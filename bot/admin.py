@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction
+from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction, SupportTicket, SupportMessage, OwnerSettings, BroadcastMessage, PromoCode
 from django import forms
 
 class UserAdmin(admin.ModelAdmin):
@@ -82,6 +82,49 @@ class GoodsAdmin(admin.ModelAdmin):
 
 
 
+class SupportMessageInline(admin.TabularInline):
+    model = SupportMessage
+    extra = 0
+    fields = ('sender', 'sender_type', 'message_text', 'created_at')
+    readonly_fields = ('created_at',)
+    ordering = ('created_at',)
+
+class SupportTicketAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'platform', 'status', 'assigned_admin', 'created_at', 'updated_at')
+    list_filter = ('status', 'platform', 'created_at', 'assigned_admin')
+    search_fields = ('user__user_name', 'subject')
+    list_editable = ('status', 'assigned_admin')
+    inlines = [SupportMessageInline]
+    readonly_fields = ('created_at', 'updated_at', 'closed_at', 'first_admin_notification_sent', 'second_admin_notification_sent', 'owner_notification_sent')
+    fieldsets = (
+        (None, {
+            'fields': ('user', 'platform', 'subject', 'status', 'assigned_admin')
+        }),
+        ('Временные метки', {
+            'fields': ('created_at', 'updated_at', 'closed_at'),
+            'classes': ('collapse',)
+        }),
+        ('Уведомления', {
+            'fields': ('first_admin_notification_sent', 'second_admin_notification_sent', 'owner_notification_sent'),
+            'classes': ('collapse',)
+        }),
+    )
+
+class SupportMessageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'ticket', 'sender', 'sender_type', 'message_text_short', 'created_at')
+    list_filter = ('sender_type', 'created_at')
+    search_fields = ('ticket__id', 'sender__user_name', 'message_text')
+    readonly_fields = ('created_at',)
+    
+    def message_text_short(self, obj):
+        return obj.message_text[:50] + '...' if len(obj.message_text) > 50 else obj.message_text
+    message_text_short.short_description = 'Сообщение'
+
+class OwnerSettingsAdmin(admin.ModelAdmin):
+    list_display = ('owner_telegram_id', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('is_active', 'created_at')
+    readonly_fields = ('created_at', 'updated_at')
+
 # Регистрируем модели в админ-панели
 admin.site.register(User, UserAdmin)
 admin.site.register(goods_category, GoodsCategoryAdmin)
@@ -89,3 +132,56 @@ admin.site.register(goods, GoodsAdmin)
 admin.site.register(FAQ, FAQAdmin)
 admin.site.register(Support)
 admin.site.register(Instruction)
+admin.site.register(SupportTicket, SupportTicketAdmin)
+admin.site.register(SupportMessage, SupportMessageAdmin)
+admin.site.register(OwnerSettings, OwnerSettingsAdmin)
+
+
+@admin.action(description="Отправить выбранную рассылку всем пользователям")
+def send_broadcast(modeladmin, request, queryset):
+    from django.utils import timezone
+    from bot import bot as telegram_bot
+    sent_count_total = 0
+    for msg in queryset:
+        if msg.is_sent:
+            continue
+        sent_count = 0
+        for u in User.objects.all():
+            try:
+                telegram_bot.send_message(u.telegram_id, msg.text)
+                sent_count += 1
+            except Exception:
+                continue
+        msg.is_sent = True
+        msg.sent_at = timezone.now()
+        msg.save()
+        sent_count_total += sent_count
+    modeladmin.message_user(request, f"Отправлено сообщений: {sent_count_total}")
+
+
+class BroadcastMessageAdmin(admin.ModelAdmin):
+    list_display = ("title", "is_sent", "created_at", "sent_at")
+    list_filter = ("is_sent", "created_at")
+    actions = [send_broadcast]
+
+
+admin.site.register(BroadcastMessage, BroadcastMessageAdmin)
+
+
+class PromoCodeAdmin(admin.ModelAdmin):
+    list_display = ('code', 'is_used', 'is_active', 'created_at', 'created_by')
+    list_filter = ('is_active', 'is_used', 'created_at')
+    search_fields = ('code',)
+    readonly_fields = ('created_at',)
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('code', 'is_active', 'is_used')
+        }),
+        ('Системная информация', {
+            'fields': ('created_at', 'created_by'),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+admin.site.register(PromoCode, PromoCodeAdmin)

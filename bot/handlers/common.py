@@ -7,6 +7,12 @@ from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_mar
 from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup, get_warranty_main_menu_markup
 from .registration import start_registration
 from bot.models import goods, goods_category, User, Support, FAQ, Instruction
+from .support import (
+    show_support_menu, start_support_ozon, start_support_wildberries,
+    handle_support_message, close_support_ticket, accept_support_ticket,
+    handle_admin_response, finish_ticket_processing, view_ticket_details,
+    already_assigned_callback, support_state, admin_response_state
+)
 from bot.apis import analyze_screenshot
 from bot.apis.ai import OpenAIAPI
 from functools import wraps
@@ -1441,6 +1447,16 @@ def chat_with_ai(message):
         if message.chat.id in warranty_case_description_state:
             process_warranty_case_description(message)
             return
+        
+        # Проверяем, находится ли пользователь в режиме поддержки
+        if message.chat.id in support_state:
+            if handle_support_message(message):
+                return
+        
+        # Проверяем, отвечает ли админ на обращение
+        if message.chat.id in admin_response_state:
+            if handle_admin_response(message):
+                return
 
         user = User.objects.get(telegram_id=message.chat.id)
         
@@ -1456,6 +1472,15 @@ def chat_with_ai(message):
             return
         elif message.text == "🔧 Админ-панель":
             handle_admin_panel(message)
+            return
+        # Перехват текста рассылки, если админ в режиме рассылки
+        from .support import handle_admin_broadcast_text
+        if handle_admin_broadcast_text(message):
+            return
+        
+        # Проверяем, находится ли админ в режиме добавления промокодов
+        from .promocodes import handle_promocode_text
+        if handle_promocode_text(message):
             return
         
         # Проверяем, активирован ли режим общения с ИИ
@@ -1627,8 +1652,14 @@ def admin_panel(call: CallbackQuery) -> None:
         
         markup = InlineKeyboardMarkup()
         excel_btn = InlineKeyboardButton("📊 Получить Excel-таблицу", callback_data="admin_excel")
+        open_tickets_btn = InlineKeyboardButton("📬 Активные обращения", callback_data="admin_open_tickets")
+        broadcast_btn = InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")
+        promocode_btn = InlineKeyboardButton("🎫 Промокоды", callback_data="promocode_menu")
         back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
         markup.add(excel_btn)
+        markup.add(open_tickets_btn)
+        markup.add(broadcast_btn)
+        markup.add(promocode_btn)
         markup.add(back_btn)
         
         bot.edit_message_text(
@@ -1714,8 +1745,14 @@ def handle_admin_panel(message: Message) -> None:
         
         markup = InlineKeyboardMarkup()
         excel_btn = InlineKeyboardButton("📊 Получить Excel-таблицу", callback_data="admin_excel")
+        open_tickets_btn = InlineKeyboardButton("📬 Активные обращения", callback_data="admin_open_tickets")
+        broadcast_btn = InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")
+        promocode_btn = InlineKeyboardButton("🎫 Промокоды", callback_data="promocode_menu")
         back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
         markup.add(excel_btn)
+        markup.add(open_tickets_btn)
+        markup.add(broadcast_btn)
+        markup.add(promocode_btn)
         markup.add(back_btn)
         
         bot.reply_to(
@@ -1747,8 +1784,14 @@ def admin_command(message: Message) -> None:
         
         markup = InlineKeyboardMarkup()
         excel_btn = InlineKeyboardButton("📊 Получить Excel-таблицу", callback_data="admin_excel")
+        open_tickets_btn = InlineKeyboardButton("📬 Активные обращения", callback_data="admin_open_tickets")
+        broadcast_btn = InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")
+        promocode_btn = InlineKeyboardButton("🎫 Промокоды", callback_data="promocode_menu")
         back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
         markup.add(excel_btn)
+        markup.add(open_tickets_btn)
+        markup.add(broadcast_btn)
+        markup.add(promocode_btn)
         markup.add(back_btn)
         
         bot.reply_to(

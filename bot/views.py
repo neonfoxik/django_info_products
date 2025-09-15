@@ -27,6 +27,20 @@ from bot.handlers import (
     warranty_case_platform_choice, warranty_case_ozon, warranty_case_wildberries
 )
 
+# Импортируем новые функции поддержки
+from bot.handlers.support import (
+    show_support_menu, start_support_ozon, start_support_wildberries,
+    close_support_ticket, accept_support_ticket, finish_ticket_processing,
+    view_ticket_details, already_assigned_callback,
+    show_user_tickets, show_user_ticket_actions, user_close_ticket, user_open_ticket,
+    decline_support_ticket, admin_list_open_tickets, admin_start_broadcast, admin_broadcast_confirm,
+    send_broadcast_to_all_users
+)
+from bot.handlers.promocodes import (
+    promocode_menu, promocode_add, promocode_list, promocode_detail,
+    promocode_toggle, promocode_delete, get_user_promocode
+)
+
 
 @require_GET
 def set_webhook(request: HttpRequest) -> JsonResponse:
@@ -140,10 +154,48 @@ warranty_activation_menu_handler = bot.callback_query_handler(lambda c: c.data =
 # Обработчик для быстрой активации гарантии
 warranty_goods_fast_handler = bot.callback_query_handler(lambda c: c.data == "waranty_goods_fast")(waranty_goods_fast)
 
-# Обработчики для поддержки
-support_main_handler = bot.callback_query_handler(lambda c: c.data == "help_main")(support_main_menu)
-support_ozon_handler = bot.callback_query_handler(lambda c: c.data == "help_ozon")(support_ozon)
-support_wildberries_handler = bot.callback_query_handler(lambda c: c.data == "help_wildberries")(support_wildberries)
+# Обработчики для новой системы поддержки
+support_main_handler = bot.callback_query_handler(lambda c: c.data == "help_main")(show_support_menu)
+support_ozon_handler = bot.callback_query_handler(lambda c: c.data == "support_ozon")(start_support_ozon)
+support_wildberries_handler = bot.callback_query_handler(lambda c: c.data == "support_wildberries")(start_support_wildberries)
+close_ticket_handler = bot.callback_query_handler(lambda c: c.data == "close_ticket")(close_support_ticket)
+accept_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("accept_ticket_"))(accept_support_ticket)
+finish_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("finish_ticket_"))(finish_ticket_processing)
+view_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("view_ticket_"))(view_ticket_details)
+already_assigned_handler = bot.callback_query_handler(lambda c: c.data == "already_assigned")(already_assigned_callback)
+
+# Пользовательские обращения
+support_my_tickets_handler = bot.callback_query_handler(lambda c: c.data == "support_my_tickets")(show_user_tickets)
+support_ticket_actions_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_ticket_"))(show_user_ticket_actions)
+support_user_close_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_close_"))(user_close_ticket)
+support_user_open_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_open_"))(user_open_ticket)
+
+# Отказ админа от обращения после просмотра
+support_admin_decline_handler = bot.callback_query_handler(lambda c: c.data.startswith("decline_ticket_"))(decline_support_ticket)
+
+# Админ: список свободных активных обращений
+admin_open_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_open_tickets")(admin_list_open_tickets)
+from bot.handlers.common import admin_panel as admin_panel_cb
+admin_panel_back_handler = bot.callback_query_handler(lambda c: c.data == "admin_panel")(admin_panel_cb)
+
+# Админ: рассылка
+admin_broadcast_start_handler = bot.callback_query_handler(lambda c: c.data == "admin_broadcast")(admin_start_broadcast)
+broadcast_confirm_handler = bot.callback_query_handler(lambda c: c.data in ("broadcast_confirm", "broadcast_cancel"))(admin_broadcast_confirm)
+
+# Админ: промокоды
+promocode_menu_handler = bot.callback_query_handler(lambda c: c.data == "promocode_menu")(promocode_menu)
+promocode_add_handler = bot.callback_query_handler(lambda c: c.data == "promocode_add")(promocode_add)
+promocode_list_handler = bot.callback_query_handler(lambda c: c.data == "promocode_list")(promocode_list)
+promocode_detail_handler = bot.callback_query_handler(lambda c: c.data.startswith("promocode_detail_"))(promocode_detail)
+promocode_toggle_handler = bot.callback_query_handler(lambda c: c.data.startswith("promocode_toggle_"))(promocode_toggle)
+promocode_delete_handler = bot.callback_query_handler(lambda c: c.data.startswith("promocode_delete_"))(promocode_delete)
+
+# Пользователь: получение промокода
+get_promocode_handler = bot.callback_query_handler(lambda c: c.data == "get_promocode")(get_user_promocode)
+
+# Старые обработчики поддержки (для обратной совместимости)
+support_ozon_old_handler = bot.callback_query_handler(lambda c: c.data == "help_ozon")(support_ozon)
+support_wildberries_old_handler = bot.callback_query_handler(lambda c: c.data == "help_wildberries")(support_wildberries)
 
 
 
