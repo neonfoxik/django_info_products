@@ -34,6 +34,7 @@ from bot.handlers.support import (
     view_ticket_details, already_assigned_callback,
     show_user_tickets, show_user_ticket_actions, user_close_ticket, user_open_ticket,
     decline_support_ticket, admin_list_open_tickets, admin_start_broadcast, admin_broadcast_confirm,
+    admin_list_my_tickets,
     send_broadcast_to_all_users
 )
 from bot.handlers.promocodes import (
@@ -45,9 +46,44 @@ from bot.handlers.promocodes import (
 @require_GET
 def set_webhook(request: HttpRequest) -> JsonResponse:
     """Setting webhook."""
-    bot.set_webhook(url=f"{settings.HOOK}/bot/{settings.BOT_TOKEN}")
-    bot.send_message(settings.OWNER_ID, "webhook set")
-    return JsonResponse({"message": "OK"}, status=200)
+    try:
+        hook_base = (settings.HOOK or '').strip() if hasattr(settings, 'HOOK') else ''
+        token = (settings.BOT_TOKEN or '').strip() if hasattr(settings, 'BOT_TOKEN') else ''
+        if not hook_base or not token:
+            return JsonResponse({
+                "message": "Ошибка",
+                "detail": "Переменные окружения HOOK или BOT_TOKEN не заданы"
+            }, status=400)
+        if not hook_base.startswith('http://') and not hook_base.startswith('https://'):
+            return JsonResponse({
+                "message": "Ошибка",
+                "detail": "HOOK должен начинаться с http(s)://"
+            }, status=400)
+
+        webhook_url = f"{hook_base}/bot/{token}"
+        # Сначала удалим старый вебхук
+        try:
+            bot.remove_webhook()
+        except Exception:
+            pass
+        # Установим новый вебхук
+        bot.set_webhook(url=webhook_url)
+        try:
+            if settings.OWNER_ID:
+                bot.send_message(settings.OWNER_ID, f"✅ Webhook установлен: {webhook_url}")
+        except Exception:
+            pass
+        return JsonResponse({"message": "OK", "webhook": webhook_url}, status=200)
+    except ApiTelegramException as e:
+        return JsonResponse({
+            "message": "Ошибка Telegram",
+            "detail": str(e)
+        }, status=400)
+    except Exception as e:
+        return JsonResponse({
+            "message": "Внутренняя ошибка",
+            "detail": str(e)
+        }, status=500)
 
 
 @require_GET
@@ -177,6 +213,7 @@ support_admin_decline_handler = bot.callback_query_handler(lambda c: c.data.star
 admin_open_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_open_tickets")(admin_list_open_tickets)
 from bot.handlers.common import admin_panel as admin_panel_cb
 admin_panel_back_handler = bot.callback_query_handler(lambda c: c.data == "admin_panel")(admin_panel_cb)
+admin_my_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_my_tickets")(admin_list_my_tickets)
 
 # Админ: рассылка
 admin_broadcast_start_handler = bot.callback_query_handler(lambda c: c.data == "admin_broadcast")(admin_start_broadcast)

@@ -358,6 +358,30 @@ class SupportTicket(models.Model):
         blank=True,
         verbose_name='Время отправки уведомления владельцу'
     )
+    unread_by_admin = models.BooleanField(
+        default=False,
+        verbose_name='Есть непрочитанные сообщения для админа'
+    )
+    unread_by_user = models.BooleanField(
+        default=False,
+        verbose_name='Есть непрочитанные сообщения для пользователя'
+    )
+    last_message_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Время последнего сообщения'
+    )
+    last_message_from = models.CharField(
+        max_length=10,
+        choices=[('user','Пользователь'),('admin','Администратор')],
+        null=True,
+        blank=True,
+        verbose_name='Последнее сообщение от'
+    )
+    messages_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Количество сообщений'
+    )
 
     def __str__(self):
         return f"Обращение #{self.id} от {self.user.user_name} ({self.get_platform_display()})"
@@ -403,6 +427,23 @@ class SupportMessage(models.Model):
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name='Дата отправки'
+    )
+    # New fields for media support
+    content_type = models.CharField(
+        max_length=20,
+        default='text',
+        verbose_name='Тип контента (text/photo/video/document)'
+    )
+    file_id = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        verbose_name='File ID медиаконтента'
+    )
+    caption = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='Подпись к медиа'
     )
 
     def __str__(self):

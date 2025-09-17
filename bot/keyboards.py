@@ -189,6 +189,18 @@ def get_broadcast_confirm_markup():
     return markup
 
 
+def get_admin_my_tickets_markup(tickets: list):
+    """Список тикетов, назначенных на админа, с индикаторами статуса"""
+    markup = InlineKeyboardMarkup()
+    for t in tickets:
+        status = "🟢 В обработке" if t.status == 'in_progress' else "🟠 Открыто" if t.status == 'open' else "⚪️"
+        unread = " • ✉️" if getattr(t, 'unread_by_admin', False) else ""
+        title = f"#{t.id} • {t.user.user_name} • {t.get_platform_display()} • {status}{unread}"
+        markup.add(InlineKeyboardButton(title, callback_data=f"view_ticket_{t.id}"))
+    markup.add(InlineKeyboardButton("⬅️ Админ-панель", callback_data="admin_panel"))
+    return markup
+
+
 def get_promocode_menu_markup():
     """Клавиатура меню промокодов"""
     markup = InlineKeyboardMarkup()

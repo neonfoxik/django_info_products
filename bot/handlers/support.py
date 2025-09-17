@@ -12,7 +12,7 @@ from bot.texts import (
 from bot.keyboards import (
     get_support_platform_markup, get_close_ticket_markup, 
     get_admin_ticket_markup, get_admin_response_markup, main_markup,
-    get_user_tickets_list_markup, get_user_ticket_actions_markup
+    get_user_tickets_list_markup, get_user_ticket_actions_markup, get_admin_my_tickets_markup
 )
 from django.utils import timezone
 from django.db import transaction
@@ -159,6 +159,11 @@ def user_open_ticket(call: CallbackQuery) -> None:
                 f"#{ticket.id}. Напишите ваше сообщение."
             )
         )
+        # Короткое уведомление админам, что пользователь возобновил переписку
+        try:
+            _notify_admins_user_continues(ticket)
+        except Exception as e:
+            logger.error(f"Ошибка уведомления админов о продолжении тикета #{ticket.id}: {e}")
         bot.answer_callback_query(call.id)
     except Exception as e:
         logger.error(f"Ошибка в user_open_ticket: {e}")
@@ -294,12 +299,7 @@ def start_support_ozon(call: CallbackQuery) -> None:
                 'platform': existing_ticket.platform
             }
 
-            # Уведомляем админов повторно о существующем тикете, если он еще не принят
-            if existing_ticket.assigned_admin is None:
-                if not existing_ticket.first_admin_notification_sent:
-                    existing_ticket.first_admin_notification_sent = timezone.now()
-                    existing_ticket.save()
-                notify_admins_about_new_ticket(existing_ticket)
+            # Не уведомляем админов здесь; уведомим при следующем сообщении пользователя
 
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -319,6 +319,12 @@ def start_support_ozon(call: CallbackQuery) -> None:
             status='open'
         )
         
+        # Уведомляем админов о новом обращении сразу после его создания
+        try:
+            notify_admins_about_new_ticket(ticket)
+        except Exception as e:
+            logger.error(f"Ошибка уведомления админов о новом тикете #{ticket.id}: {e}")
+        
         # Устанавливаем состояние пользователя
         support_state[call.message.chat.id] = {
             'ticket_id': ticket.id,
@@ -332,8 +338,7 @@ def start_support_ozon(call: CallbackQuery) -> None:
             reply_markup=None
         )
         
-        # Уведомляем админов о новом обращении
-        notify_admins_about_new_ticket(ticket)
+        # Не уведомляем админов на создании, уведомим после первого сообщения пользователя
         
         bot.answer_callback_query(call.id)
         
@@ -363,12 +368,7 @@ def start_support_wildberries(call: CallbackQuery) -> None:
                 'platform': existing_ticket.platform
             }
 
-            # Уведомляем админов повторно о существующем тикете, если он еще не принят
-            if existing_ticket.assigned_admin is None:
-                if not existing_ticket.first_admin_notification_sent:
-                    existing_ticket.first_admin_notification_sent = timezone.now()
-                    existing_ticket.save()
-                notify_admins_about_new_ticket(existing_ticket)
+            # Не уведомляем админов здесь; уведомим при следующем сообщении пользователя
 
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
@@ -388,6 +388,12 @@ def start_support_wildberries(call: CallbackQuery) -> None:
             status='open'
         )
         
+        # Уведомляем админов о новом обращении сразу после его создания
+        try:
+            notify_admins_about_new_ticket(ticket)
+        except Exception as e:
+            logger.error(f"Ошибка уведомления админов о новом тикете #{ticket.id}: {e}")
+        
         # Устанавливаем состояние пользователя
         support_state[call.message.chat.id] = {
             'ticket_id': ticket.id,
@@ -401,8 +407,7 @@ def start_support_wildberries(call: CallbackQuery) -> None:
             reply_markup=None
         )
         
-        # Уведомляем админов о новом обращении
-        notify_admins_about_new_ticket(ticket)
+        # Не уведомляем админов на создании, уведомим после первого сообщения пользователя
         
         bot.answer_callback_query(call.id)
         
@@ -434,25 +439,60 @@ def handle_support_message(message: Message) -> None:
             del support_state[chat_id]
             return True
         
-        # Сохраняем сообщение пользователя
+        # Определяем тип контента и сохраняем сообщение пользователя
+        content_type = 'text'
+        file_id = None
+        caption = None
+        message_text = None
+
+        if getattr(message, 'photo', None):
+            content_type = 'photo'
+            file_id = message.photo[-1].file_id
+            caption = message.caption
+        elif getattr(message, 'video', None):
+            content_type = 'video'
+            file_id = message.video.file_id
+            caption = message.caption
+        elif getattr(message, 'document', None):
+            content_type = 'document'
+            file_id = message.document.file_id
+            caption = message.caption
+        elif getattr(message, 'text', None):
+            content_type = 'text'
+            message_text = message.text
+
         SupportMessage.objects.create(
             ticket=ticket,
             sender=user,
             sender_type='user',
-            message_text=message.text,
-            telegram_message_id=str(message.message_id)
+            message_text=message_text or (caption or ''),
+            telegram_message_id=str(message.message_id),
+            content_type=content_type,
+            file_id=file_id,
+            caption=caption,
         )
+        # Обновляем метки тикета
+        ticket.unread_by_admin = True
+        ticket.last_message_at = timezone.now()
+        ticket.last_message_from = 'user'
+        ticket.messages_count = (ticket.messages_count or 0) + 1
+        ticket.save(update_fields=['unread_by_admin','last_message_at','last_message_from','messages_count'])
         
         # Отправляем подтверждение пользователю
-        bot.send_message(
-            chat_id=chat_id,
-            text=SUPPORT_MESSAGE_RECEIVED_TEXT
-        )
+        try:
+            bot.send_message(
+                chat_id=chat_id,
+                text=SUPPORT_MESSAGE_RECEIVED_TEXT
+            )
+        except Exception:
+            pass
         
-        # Если обращение еще не принято, обновляем время уведомлений
-        if ticket.status == 'open' and not ticket.first_admin_notification_sent:
-            ticket.first_admin_notification_sent = timezone.now()
-            ticket.save()
+        # Пересылаем сообщение только назначенному администратору (если есть)
+        try:
+            if ticket.assigned_admin:
+                _forward_to_admins(ticket, message)
+        except Exception as e:
+            logger.error(f"Ошибка пересылки сообщения назначенному админу по тикету #{ticket.id}: {e}")
         
         return True
         
@@ -543,6 +583,10 @@ def accept_support_ticket(call: CallbackQuery) -> None:
             # Назначаем админа
             ticket.assigned_admin = admin
             ticket.status = 'in_progress'
+            ticket.unread_by_user = True
+            ticket.unread_by_admin = False
+            ticket.last_message_at = timezone.now()
+            ticket.last_message_from = 'admin'
             ticket.save()
         
         # Собираем историю сообщений
@@ -644,6 +688,13 @@ def handle_admin_response(message: Message) -> None:
             text=ADMIN_RESPONSE_SENT_TEXT,
             reply_markup=get_admin_response_markup(ticket_id)
         )
+        # Обновляем тикет: прочитано админом, непрочитано пользователем
+        ticket.unread_by_user = True
+        ticket.unread_by_admin = False
+        ticket.last_message_at = timezone.now()
+        ticket.last_message_from = 'admin'
+        ticket.messages_count = (ticket.messages_count or 0) + 1
+        ticket.save(update_fields=['unread_by_user','unread_by_admin','last_message_at','last_message_from','messages_count'])
         
         return True
         
@@ -734,6 +785,10 @@ def view_ticket_details(call: CallbackQuery) -> None:
         if len(message_history) > 4000:
             message_history = message_history[:3900] + "\n\n... (сообщение обрезано)"
         
+        # Помечаем как прочитанное админом
+        ticket.unread_by_admin = False
+        ticket.save(update_fields=['unread_by_admin'])
+
         # Заменяем исходное сообщение и предлагаем принять/отказаться
         from bot.keyboards import get_admin_ticket_decision_markup
         bot.edit_message_text(
@@ -775,6 +830,33 @@ def admin_list_open_tickets(call: CallbackQuery) -> None:
         bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
 
 
+def admin_list_my_tickets(call: CallbackQuery) -> None:
+    """Показывает обращения, назначенные на текущего админа"""
+    try:
+        admin = User.objects.get(telegram_id=call.message.chat.id)
+        tickets = SupportTicket.objects.filter(assigned_admin=admin, status__in=["open","in_progress"]).order_by('-last_message_at','-created_at')
+        from bot.keyboards import get_admin_my_tickets_markup
+        if not tickets.exists():
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="У вас нет активных обращений.",
+                reply_markup=get_admin_my_tickets_markup([])
+            )
+            bot.answer_callback_query(call.id)
+            return
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Мои обращения:",
+            reply_markup=get_admin_my_tickets_markup(list(tickets))
+        )
+        bot.answer_callback_query(call.id)
+    except Exception as e:
+        logger.error(f"Ошибка в admin_list_my_tickets: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+
 def decline_support_ticket(call: CallbackQuery) -> None:
     """Админ отказывается от обращения (ничего не меняем в тикете)"""
     try:
@@ -793,7 +875,6 @@ def notify_admins_about_new_ticket(ticket: SupportTicket) -> None:
     """Уведомляет всех админов о новом обращении"""
     try:
         admins = User.objects.filter(is_admin=True)
-        
         for admin in admins:
             try:
                 bot.send_message(
@@ -815,3 +896,40 @@ def notify_admins_about_new_ticket(ticket: SupportTicket) -> None:
 def already_assigned_callback(call: CallbackQuery) -> None:
     """Обрабатывает нажатие на кнопку 'уже принято'"""
     bot.answer_callback_query(call.id, ADMIN_TICKET_ALREADY_ASSIGNED_TEXT)
+
+
+def _forward_to_admins(ticket: SupportTicket, message: Message) -> None:
+    """Пересылает сообщение пользователя админам с нужными кнопками."""
+    admins = []
+    if ticket.assigned_admin:
+        admins = [ticket.assigned_admin]
+    else:
+        admins = list(User.objects.filter(is_admin=True))
+
+    for admin in admins:
+        try:
+            header = f"Новое сообщение по обращению #{ticket.id} от {ticket.user.user_name}"
+            if getattr(message, 'photo', None):
+                bot.send_photo(admin.telegram_id, message.photo[-1].file_id, caption=(message.caption or header), reply_markup=get_admin_ticket_markup(ticket.id))
+            elif getattr(message, 'video', None):
+                bot.send_video(admin.telegram_id, message.video.file_id, caption=(message.caption or header), reply_markup=get_admin_ticket_markup(ticket.id))
+            elif getattr(message, 'document', None):
+                bot.send_document(admin.telegram_id, message.document.file_id, caption=(message.caption or header), reply_markup=get_admin_ticket_markup(ticket.id))
+            elif getattr(message, 'text', None):
+                bot.send_message(admin.telegram_id, f"{header}\n\n{message.text}", reply_markup=get_admin_ticket_markup(ticket.id))
+            else:
+                bot.send_message(admin.telegram_id, header, reply_markup=get_admin_ticket_markup(ticket.id))
+        except Exception as e:
+            logger.error(f"Ошибка отправки сообщения админу {admin.telegram_id}: {e}")
+
+
+def _notify_admins_user_continues(ticket: SupportTicket) -> None:
+    """Уведомляет ТОЛЬКО назначенного админа при возобновлении переписки пользователем.
+    Если админ не назначен — не уведомляем никого (во избежание спама)."""
+    if not ticket.assigned_admin:
+        return
+    text = f"Пользователь {ticket.user.user_name} продолжает переписку по обращению #{ticket.id}"
+    try:
+        bot.send_message(ticket.assigned_admin.telegram_id, text, reply_markup=get_admin_ticket_markup(ticket.id))
+    except Exception as e:
+        logger.error(f"Ошибка отправки уведомления назначенному админу {ticket.assigned_admin.telegram_id}: {e}")
