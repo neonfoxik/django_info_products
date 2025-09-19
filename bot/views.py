@@ -34,7 +34,7 @@ from bot.handlers.support import (
     view_ticket_details, already_assigned_callback,
     show_user_tickets, show_user_ticket_actions, user_close_ticket, user_open_ticket,
     decline_support_ticket, admin_list_open_tickets, admin_start_broadcast, admin_broadcast_confirm,
-    admin_list_my_tickets,
+    admin_list_my_tickets, admin_list_in_progress_tickets, takeover_support_ticket, send_ticket_files_to_admin,
     send_broadcast_to_all_users
 )
 from bot.handlers.promocodes import (
@@ -142,7 +142,24 @@ admin_command_handler = bot.message_handler(commands=['admin'])(admin_command)
 # Обработчик для контактов и номеров телефона в гарантийных случаях
 contact_handler = bot.message_handler(content_types=['contact'])(process_warranty_case_contact)
 
-# Явный обработчик для фотографий
+# Роутер медиа: если пользователь в поддержке, отправляем в тикет; иначе оставляем прежнее поведение (фото -> гарантия)
+def support_media_router(message):
+    try:
+        from bot.handlers.support import support_state, handle_support_message
+        if message.chat.id in support_state:
+            handle_support_message(message)
+            return
+        # Если не в поддержке и это фото — передаем в гарантийный обработчик
+        if getattr(message, 'photo', None):
+            from bot.handlers.common import check_screenshot as cs
+            cs(message)
+    except Exception:
+        # На случай любой ошибки — не ломаем оставшиеся хендлеры
+        pass
+
+support_media_handler = bot.message_handler(content_types=['photo','video','document'])(support_media_router)
+
+# Явный обработчик для фотографий (остается на случай, когда не активна поддержка)
 photo_handler = bot.message_handler(content_types=['photo'])(check_screenshot)
 
 # Общий обработчик сообщений (должен идти после специализированных обработчиков)
@@ -198,6 +215,8 @@ close_ticket_handler = bot.callback_query_handler(lambda c: c.data == "close_tic
 accept_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("accept_ticket_"))(accept_support_ticket)
 finish_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("finish_ticket_"))(finish_ticket_processing)
 view_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("view_ticket_"))(view_ticket_details)
+takeover_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("takeover_ticket_"))(takeover_support_ticket)
+get_ticket_files_handler = bot.callback_query_handler(lambda c: c.data.startswith("get_ticket_files_"))(send_ticket_files_to_admin)
 already_assigned_handler = bot.callback_query_handler(lambda c: c.data == "already_assigned")(already_assigned_callback)
 
 # Пользовательские обращения
@@ -211,6 +230,7 @@ support_admin_decline_handler = bot.callback_query_handler(lambda c: c.data.star
 
 # Админ: список свободных активных обращений
 admin_open_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_open_tickets")(admin_list_open_tickets)
+admin_in_progress_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_in_progress_tickets")(admin_list_in_progress_tickets)
 from bot.handlers.common import admin_panel as admin_panel_cb
 admin_panel_back_handler = bot.callback_query_handler(lambda c: c.data == "admin_panel")(admin_panel_cb)
 admin_my_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_my_tickets")(admin_list_my_tickets)

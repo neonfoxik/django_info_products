@@ -136,7 +136,17 @@ def get_admin_response_markup(ticket_id):
     """Создает клавиатуру для админа во время ответа на обращение"""
     markup = InlineKeyboardMarkup()
     finish_btn = InlineKeyboardButton("🏁 Завершить обработку", callback_data=f"finish_ticket_{ticket_id}")
+    files_btn = InlineKeyboardButton("📎 Получить файлы", callback_data=f"get_ticket_files_{ticket_id}")
     markup.add(finish_btn)
+    markup.add(files_btn)
+    return markup
+
+
+def get_ticket_files_markup(ticket_id: int):
+    """Кнопка под уведомлением: получить все файлы из обращения"""
+    markup = InlineKeyboardMarkup()
+    btn = InlineKeyboardButton("📎 Получить файлы", callback_data=f"get_ticket_files_{ticket_id}")
+    markup.add(btn)
     return markup
 
 
@@ -175,6 +185,19 @@ def get_admin_open_tickets_markup(tickets: list):
     for t in tickets:
         title = f"#{t.id} • {t.user.user_name} • {t.get_platform_display()}"
         markup.add(InlineKeyboardButton(title, callback_data=f"view_ticket_{t.id}"))
+    markup.add(InlineKeyboardButton("⬅️ Админ-панель", callback_data="admin_panel"))
+    return markup
+
+
+def get_admin_in_progress_tickets_markup(tickets: list):
+    """Список обращений в обработке (можно перехватить)"""
+    markup = InlineKeyboardMarkup()
+    for t in tickets:
+        assigned = f" • {t.assigned_admin.user_name}" if t.assigned_admin else ""
+        title = f"#{t.id} • {t.user.user_name} • {t.get_platform_display()}{assigned}"
+        markup.add(InlineKeyboardButton(title, callback_data=f"view_ticket_{t.id}"))
+        # Отдельная кнопка для перехвата
+        markup.add(InlineKeyboardButton("♻️ Перехватить это обращение", callback_data=f"takeover_ticket_{t.id}"))
     markup.add(InlineKeyboardButton("⬅️ Админ-панель", callback_data="admin_panel"))
     return markup
 

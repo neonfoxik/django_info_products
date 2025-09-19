@@ -3,8 +3,8 @@ from .models import User, goods_category, goods, ProductImage, Support, FAQ, Ins
 from django import forms
 
 class UserAdmin(admin.ModelAdmin):
-    list_display = ('user_name', 'phone_number', 'is_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
-    search_fields = ('user_name', 'phone_number')
+    list_display = ('telegram_id', 'user_name', 'phone_number', 'is_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
+    search_fields = ('user_name', 'phone_number', 'telegram_id')
     ordering = ('-telegram_id',)
     fieldsets = (
         (None, {
