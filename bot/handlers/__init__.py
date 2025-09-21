@@ -17,6 +17,7 @@ from .common import (
     cancel_review,
     send_excel_to_admin,
     admin_command,
+    show_admin_panel,
     show_warranty_cases,
     handle_warranty_case,
     send_instruction_pdf,
@@ -148,6 +149,8 @@ def handle_callback(call: CallbackQuery) -> None:
             promocode_delete(call)
         elif call.data == "get_promocode":
             get_user_promocode(call)
+        elif call.data == "admin_panel":
+            show_admin_panel(call)
         elif call.data == "category_header":
             # Заголовки категорий - просто игнорируем нажатие
             bot.answer_callback_query(

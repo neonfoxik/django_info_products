@@ -7,13 +7,35 @@ from telebot.types import (
 from django.conf import settings
 from django.contrib.auth.models import User
 
-# Главное меню
+# Главное меню (базовое без админки)
 main_markup = InlineKeyboardMarkup()
 btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog")
 btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="help_main")
 btn3 = InlineKeyboardButton("🛡️ Гарантия", callback_data="warranty_main_menu")
 btn4 = InlineKeyboardButton("🎫 Получить промокод", callback_data="get_promocode")
 main_markup.add(btn1).add(btn2).add(btn3).add(btn4)
+
+def get_main_markup_for_user(user_id: int) -> InlineKeyboardMarkup:
+    """Создает главное меню с учетом роли пользователя"""
+    markup = InlineKeyboardMarkup()
+    btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog")
+    btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="help_main")
+    btn3 = InlineKeyboardButton("🛡️ Гарантия", callback_data="warranty_main_menu")
+    btn4 = InlineKeyboardButton("🎫 Получить промокод", callback_data="get_promocode")
+    
+    markup.add(btn1).add(btn2).add(btn3).add(btn4)
+    
+    # Добавляем админку только для админов
+    try:
+        from bot.models import User
+        user = User.objects.get(telegram_id=user_id)
+        if user.is_admin:
+            btn5 = InlineKeyboardButton("🔧 Админ-панель", callback_data="admin_panel")
+            markup.add(btn5)
+    except:
+        pass  # Если пользователь не найден, показываем без админки
+    
+    return markup
 
 # Клавиатура для выбора типа поддержки (устаревшая, заменена на get_support_platform_markup)
 support_markup = InlineKeyboardMarkup()

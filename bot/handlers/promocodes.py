@@ -12,8 +12,15 @@ promocode_state = {}
 def promocode_menu(call: CallbackQuery) -> None:
     """Показывает меню управления промокодами"""
     try:
-        admin = User.objects.get(telegram_id=call.message.chat.id)
-        if not admin.is_admin:
+        from bot.models import OwnerSettings
+        
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        is_owner = OwnerSettings.objects.filter(
+            owner_telegram_id=call.message.chat.id,
+            is_active=True
+        ).exists()
+        
+        if not user.is_admin and not is_owner:
             bot.answer_callback_query(call.id, "Нет доступа")
             return
         
@@ -33,9 +40,16 @@ def promocode_menu(call: CallbackQuery) -> None:
 def promocode_add(call: CallbackQuery) -> None:
     """Запрашивает промокоды для добавления"""
     try:
-        admin = User.objects.get(telegram_id=call.message.chat.id)
-        if not admin.is_admin:
-            bot.answer_callback_query(call.id, "Нет доступа")
+        from bot.models import OwnerSettings
+        
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        is_owner = OwnerSettings.objects.filter(
+            owner_telegram_id=call.message.chat.id,
+            is_active=True
+        ).exists()
+        
+        if not is_owner:
+            bot.answer_callback_query(call.id, "Только владелец бота может добавлять промокоды")
             return
         
         promocode_state[call.message.chat.id] = {"awaiting_promocodes": True}
@@ -69,7 +83,22 @@ def handle_promocode_text(message: Message) -> bool:
         if not state.get("awaiting_promocodes"):
             return False
         
-        admin = User.objects.get(telegram_id=message.chat.id)
+        from bot.models import OwnerSettings
+        
+        user = User.objects.get(telegram_id=message.chat.id)
+        is_owner = OwnerSettings.objects.filter(
+            owner_telegram_id=message.chat.id,
+            is_active=True
+        ).exists()
+        
+        if not is_owner:
+            bot.send_message(
+                chat_id=message.chat.id,
+                text="❌ Только владелец бота может добавлять промокоды"
+            )
+            if message.chat.id in promocode_state:
+                del promocode_state[message.chat.id]
+            return True
         
         # Разбираем промокоды из текста
         promocodes_text = message.text.strip()
@@ -95,7 +124,7 @@ def handle_promocode_text(message: Message) -> bool:
                 promo, created = PromoCode.objects.get_or_create(
                     code=code,
                     defaults={
-                        'created_by': admin,
+                        'created_by': user,
                         'is_active': True,
                         'is_used': False
                     }
@@ -141,8 +170,15 @@ def handle_promocode_text(message: Message) -> bool:
 def promocode_list(call: CallbackQuery) -> None:
     """Показывает список промокодов"""
     try:
-        admin = User.objects.get(telegram_id=call.message.chat.id)
-        if not admin.is_admin:
+        from bot.models import OwnerSettings
+        
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        is_owner = OwnerSettings.objects.filter(
+            owner_telegram_id=call.message.chat.id,
+            is_active=True
+        ).exists()
+        
+        if not user.is_admin and not is_owner:
             bot.answer_callback_query(call.id, "Нет доступа")
             return
         
@@ -174,8 +210,15 @@ def promocode_list(call: CallbackQuery) -> None:
 def promocode_detail(call: CallbackQuery) -> None:
     """Показывает детали промокода"""
     try:
-        admin = User.objects.get(telegram_id=call.message.chat.id)
-        if not admin.is_admin:
+        from bot.models import OwnerSettings
+        
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        is_owner = OwnerSettings.objects.filter(
+            owner_telegram_id=call.message.chat.id,
+            is_active=True
+        ).exists()
+        
+        if not user.is_admin and not is_owner:
             bot.answer_callback_query(call.id, "Нет доступа")
             return
         
@@ -213,8 +256,15 @@ def promocode_detail(call: CallbackQuery) -> None:
 def promocode_toggle(call: CallbackQuery) -> None:
     """Переключает статус промокода"""
     try:
-        admin = User.objects.get(telegram_id=call.message.chat.id)
-        if not admin.is_admin:
+        from bot.models import OwnerSettings
+        
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        is_owner = OwnerSettings.objects.filter(
+            owner_telegram_id=call.message.chat.id,
+            is_active=True
+        ).exists()
+        
+        if not user.is_admin and not is_owner:
             bot.answer_callback_query(call.id, "Нет доступа")
             return
         
@@ -242,8 +292,15 @@ def promocode_toggle(call: CallbackQuery) -> None:
 def promocode_delete(call: CallbackQuery) -> None:
     """Удаляет промокод"""
     try:
-        admin = User.objects.get(telegram_id=call.message.chat.id)
-        if not admin.is_admin:
+        from bot.models import OwnerSettings
+        
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        is_owner = OwnerSettings.objects.filter(
+            owner_telegram_id=call.message.chat.id,
+            is_active=True
+        ).exists()
+        
+        if not user.is_admin and not is_owner:
             bot.answer_callback_query(call.id, "Нет доступа")
             return
         

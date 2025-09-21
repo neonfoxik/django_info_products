@@ -3,7 +3,7 @@ from bot import bot
 from bot.texts import MAIN_TEXT, SUPPORT_TEXT, SUPPORT_LIMIT_REACHED, AI_ERROR
 from bot.texts import SEND_SCREENSHOT, SCREENSHOT_PROCESSING, SCREENSHOT_CHECKING, SCREENSHOT_INVALID, SCREENSHOT_VERIFIED, SCREENSHOT_LIMIT_REACHED
 from bot.texts import WARRANTY_CONDITIONS_TEXT
-from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup
+from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup, get_main_markup_for_user
 from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup, get_warranty_main_menu_markup
 from .registration import start_registration
 from bot.models import goods, goods_category, User, Support, FAQ, Instruction
@@ -89,7 +89,7 @@ def menu_call(call: CallbackQuery) -> None:
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,
         text=MAIN_TEXT,
-        reply_markup=main_markup
+        reply_markup=get_main_markup_for_user(call.message.chat.id)
     )
 
 @disable_ai_mode
@@ -105,7 +105,7 @@ def menu_m(message: Message) -> None:
     bot.send_message(
         chat_id=message.chat.id,
         text=MAIN_TEXT,
-        reply_markup=main_markup
+        reply_markup=get_main_markup_for_user(message.chat.id)
     )
 
 @disable_ai_mode
@@ -1621,7 +1621,7 @@ def back_to_main(call: CallbackQuery) -> None:
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
             text=MAIN_TEXT,
-            reply_markup=main_markup
+            reply_markup=get_main_markup_for_user(call.message.chat.id)
         )
     except User.DoesNotExist:
         pass
@@ -1654,14 +1654,12 @@ def admin_panel(call: CallbackQuery) -> None:
         excel_btn = InlineKeyboardButton("📊 Получить Excel-таблицу", callback_data="admin_excel")
         open_tickets_btn = InlineKeyboardButton("📬 Активные обращения", callback_data="admin_open_tickets")
         in_progress_tickets_btn = InlineKeyboardButton("🟡 В обработке", callback_data="admin_in_progress_tickets")
-        my_tickets_btn = InlineKeyboardButton("📂 Мои обращения", callback_data="admin_my_tickets")
         broadcast_btn = InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")
         promocode_btn = InlineKeyboardButton("🎫 Промокоды", callback_data="promocode_menu")
         back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
         markup.add(excel_btn)
         markup.add(open_tickets_btn)
         markup.add(in_progress_tickets_btn)
-        markup.add(my_tickets_btn)
         markup.add(broadcast_btn)
         markup.add(promocode_btn)
         markup.add(back_btn)
@@ -1814,6 +1812,42 @@ def admin_command(message: Message) -> None:
             message,
             "Произошла ошибка. Попробуйте позже."
         )
+
+
+def show_admin_panel(call: CallbackQuery) -> None:
+    """Показывает админ-панель для callback запросов"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        if not user.is_admin:
+            bot.answer_callback_query(call.id, "У вас нет доступа к админ-панели")
+            return
+        
+        markup = InlineKeyboardMarkup()
+        excel_btn = InlineKeyboardButton("📊 Получить Excel-таблицу", callback_data="admin_excel")
+        open_tickets_btn = InlineKeyboardButton("📬 Активные обращения", callback_data="admin_open_tickets")
+        in_progress_tickets_btn = InlineKeyboardButton("🟡 В обработке", callback_data="admin_in_progress_tickets")
+        broadcast_btn = InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")
+        promocode_btn = InlineKeyboardButton("🎫 Промокоды", callback_data="promocode_menu")
+        back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
+        markup.add(excel_btn)
+        markup.add(open_tickets_btn)
+        markup.add(in_progress_tickets_btn)
+        markup.add(broadcast_btn)
+        markup.add(promocode_btn)
+        markup.add(back_btn)
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="🔧 Админ-панель\n\nВыберите действие:",
+            reply_markup=markup
+        )
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка при показе админ-панели: {e}")
+        logger.error(f"[ERROR] Ошибка при показе админ-панели: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
 
 @disable_ai_mode
 def show_warranty_cases(call: CallbackQuery) -> None:
