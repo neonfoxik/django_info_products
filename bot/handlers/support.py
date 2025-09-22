@@ -807,14 +807,40 @@ def view_ticket_details(call: CallbackQuery) -> None:
         ticket.unread_by_admin = False
         ticket.save(update_fields=['unread_by_admin'])
 
-        # Заменяем исходное сообщение и предлагаем принять/отказаться
-        from bot.keyboards import get_admin_ticket_decision_markup
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=message_history,
-            reply_markup=get_admin_ticket_decision_markup(ticket_id)
-        )
+        # Проверяем, назначен ли текущий админ на это обращение
+        admin = User.objects.get(telegram_id=call.message.chat.id)
+        
+        if ticket.assigned_admin and ticket.assigned_admin.id == admin.id:
+            # Если админ уже назначен на это обращение, устанавливаем состояние для ответов
+            admin_response_state[call.message.chat.id] = {
+                'ticket_id': ticket_id
+            }
+            
+            # Проверяем, есть ли файлы в обращении
+            has_files = SupportMessage.objects.filter(ticket=ticket).exclude(content_type='text').exists()
+            
+            # Создаем клавиатуру для ответов
+            from bot.keyboards import get_admin_response_markup, get_ticket_files_markup
+            if has_files:
+                markup = get_ticket_files_markup(ticket_id)
+            else:
+                markup = get_admin_response_markup(ticket_id)
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=message_history + "\n\n✅ Вы назначены на это обращение. Можете отвечать пользователю.",
+                reply_markup=markup
+            )
+        else:
+            # Если админ не назначен, предлагаем принять/отказаться
+            from bot.keyboards import get_admin_ticket_decision_markup
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=message_history,
+                reply_markup=get_admin_ticket_decision_markup(ticket_id)
+            )
         
         bot.answer_callback_query(call.id)
         
@@ -889,12 +915,40 @@ def takeover_support_ticket(call: CallbackQuery) -> None:
             ticket.last_message_from = 'admin'
             ticket.save()
 
+        # Устанавливаем состояние админа для ответов
+        admin_response_state[call.message.chat.id] = {
+            'ticket_id': ticket_id
+        }
+        
+        # Собираем историю сообщений
+        messages = SupportMessage.objects.filter(ticket=ticket).order_by('created_at')
+        message_history = ""
+        for msg in messages:
+            timestamp = msg.created_at.strftime('%H:%M %d.%m.%Y')
+            message_history += f"[{timestamp}] {msg.sender.user_name}: {msg.message_text}\n\n"
+        
+        if not message_history:
+            message_history = "Пока нет сообщений от пользователя."
+        
+        # Проверяем, есть ли файлы в обращении
+        has_files = SupportMessage.objects.filter(ticket=ticket).exclude(content_type='text').exists()
+        
+        # Создаем клавиатуру с кнопкой получения файлов, если они есть
+        from bot.keyboards import get_admin_response_markup, get_ticket_files_markup
+        if has_files:
+            markup = get_ticket_files_markup(ticket_id)
+        else:
+            markup = get_admin_response_markup(ticket_id)
+        
         # Сообщаем админу
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"✅ Вы перехватили обращение #{ticket_id}",
-            reply_markup=get_admin_response_markup(ticket_id)
+            text=f"✅ Вы перехватили обращение #{ticket_id}\n\n" + ADMIN_TICKET_ASSIGNED_TEXT.format(
+                ticket_id=ticket_id,
+                message_history=message_history
+            ),
+            reply_markup=markup
         )
 
         # Уведомляем пользователя о смене администратора
