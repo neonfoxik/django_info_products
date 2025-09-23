@@ -810,7 +810,7 @@ def view_ticket_details(call: CallbackQuery) -> None:
         # Проверяем, назначен ли текущий админ на это обращение
         admin = User.objects.get(telegram_id=call.message.chat.id)
         
-        if ticket.assigned_admin and ticket.assigned_admin.id == admin.id:
+        if ticket.assigned_admin and ticket.assigned_admin.telegram_id == admin.telegram_id:
             # Если админ уже назначен на это обращение, устанавливаем состояние для ответов
             admin_response_state[call.message.chat.id] = {
                 'ticket_id': ticket_id
@@ -820,9 +820,9 @@ def view_ticket_details(call: CallbackQuery) -> None:
             has_files = SupportMessage.objects.filter(ticket=ticket).exclude(content_type='text').exists()
             
             # Создаем клавиатуру для ответов
-            from bot.keyboards import get_admin_response_markup, get_ticket_files_markup
+            from bot.keyboards import get_admin_response_markup, get_admin_response_with_files_markup
             if has_files:
-                markup = get_ticket_files_markup(ticket_id)
+                markup = get_admin_response_with_files_markup(ticket_id)
             else:
                 markup = get_admin_response_markup(ticket_id)
             
@@ -934,9 +934,9 @@ def takeover_support_ticket(call: CallbackQuery) -> None:
         has_files = SupportMessage.objects.filter(ticket=ticket).exclude(content_type='text').exists()
         
         # Создаем клавиатуру с кнопкой получения файлов, если они есть
-        from bot.keyboards import get_admin_response_markup, get_ticket_files_markup
+        from bot.keyboards import get_admin_response_markup, get_admin_response_with_files_markup
         if has_files:
-            markup = get_ticket_files_markup(ticket_id)
+            markup = get_admin_response_with_files_markup(ticket_id)
         else:
             markup = get_admin_response_markup(ticket_id)
         
@@ -1083,6 +1083,43 @@ def notify_admins_about_new_ticket(ticket: SupportTicket) -> None:
 def already_assigned_callback(call: CallbackQuery) -> None:
     """Обрабатывает нажатие на кнопку 'уже принято'"""
     bot.answer_callback_query(call.id, ADMIN_TICKET_ALREADY_ASSIGNED_TEXT)
+
+
+def admin_back_to_tickets(call: CallbackQuery) -> None:
+    """Возвращает админа к списку его обращений без закрытия текущего"""
+    try:
+        admin = User.objects.get(telegram_id=call.message.chat.id)
+        
+        # Получаем обращения, назначенные на этого админа
+        tickets = SupportTicket.objects.filter(
+            assigned_admin=admin,
+            status__in=['open', 'in_progress']
+        ).order_by('-created_at')
+        
+        if not tickets:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="📋 У вас нет назначенных обращений.\n\nВсе ваши обращения обработаны.",
+                reply_markup=get_admin_my_tickets_markup([])
+            )
+        else:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="📋 Ваши обращения:\n\nВыберите обращение для просмотра или продолжения переписки:",
+                reply_markup=get_admin_my_tickets_markup(list(tickets))
+            )
+        
+        # Удаляем состояние ответа админа (но не закрываем обращение)
+        if call.message.chat.id in admin_response_state:
+            del admin_response_state[call.message.chat.id]
+        
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в admin_back_to_tickets: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
 
 
 def _forward_to_admins(ticket: SupportTicket, message: Message) -> None:

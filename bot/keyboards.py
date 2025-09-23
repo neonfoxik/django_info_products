@@ -159,8 +159,10 @@ def get_admin_response_markup(ticket_id):
     markup = InlineKeyboardMarkup()
     finish_btn = InlineKeyboardButton("🏁 Завершить обработку", callback_data=f"finish_ticket_{ticket_id}")
     files_btn = InlineKeyboardButton("📎 Получить файлы", callback_data=f"get_ticket_files_{ticket_id}")
+    back_btn = InlineKeyboardButton("⬅️ Назад к обращениям", callback_data="admin_back_to_tickets")
     markup.add(finish_btn)
     markup.add(files_btn)
+    markup.add(back_btn)
     return markup
 
 
@@ -169,6 +171,18 @@ def get_ticket_files_markup(ticket_id: int):
     markup = InlineKeyboardMarkup()
     btn = InlineKeyboardButton("📎 Получить файлы", callback_data=f"get_ticket_files_{ticket_id}")
     markup.add(btn)
+    return markup
+
+
+def get_admin_response_with_files_markup(ticket_id):
+    """Создает клавиатуру для админа во время ответа на обращение с файлами"""
+    markup = InlineKeyboardMarkup()
+    finish_btn = InlineKeyboardButton("🏁 Завершить обработку", callback_data=f"finish_ticket_{ticket_id}")
+    files_btn = InlineKeyboardButton("📎 Получить файлы", callback_data=f"get_ticket_files_{ticket_id}")
+    back_btn = InlineKeyboardButton("⬅️ Назад к обращениям", callback_data="admin_back_to_tickets")
+    markup.add(finish_btn)
+    markup.add(files_btn)
+    markup.add(back_btn)
     return markup
 
 

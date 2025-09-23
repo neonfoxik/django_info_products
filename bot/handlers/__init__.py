@@ -43,7 +43,8 @@ from .support import (
     show_support_menu, start_support_ozon, start_support_wildberries,
     close_support_ticket, accept_support_ticket, finish_ticket_processing,
     view_ticket_details, already_assigned_callback, admin_list_open_tickets,
-    admin_start_broadcast, admin_broadcast_confirm, send_broadcast_to_all_users
+    admin_start_broadcast, admin_broadcast_confirm, send_broadcast_to_all_users,
+    admin_back_to_tickets, admin_list_my_tickets
 )
 from .promocodes import (
     promocode_menu, promocode_add, promocode_list, promocode_detail,
@@ -151,6 +152,10 @@ def handle_callback(call: CallbackQuery) -> None:
             get_user_promocode(call)
         elif call.data == "admin_panel":
             show_admin_panel(call)
+        elif call.data == "admin_back_to_tickets":
+            admin_back_to_tickets(call)
+        elif call.data == "admin_my_tickets":
+            admin_list_my_tickets(call)
         elif call.data == "category_header":
             # Заголовки категорий - просто игнорируем нажатие
             bot.answer_callback_query(

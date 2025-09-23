@@ -35,6 +35,7 @@ from bot.handlers.support import (
     show_user_tickets, show_user_ticket_actions, user_close_ticket, user_open_ticket,
     decline_support_ticket, admin_list_open_tickets, admin_start_broadcast, admin_broadcast_confirm,
     admin_list_my_tickets, admin_list_in_progress_tickets, takeover_support_ticket, send_ticket_files_to_admin,
+    admin_back_to_tickets,
     send_broadcast_to_all_users
 )
 from bot.handlers.promocodes import (
@@ -234,6 +235,9 @@ admin_in_progress_tickets_handler = bot.callback_query_handler(lambda c: c.data 
 from bot.handlers.common import admin_panel as admin_panel_cb
 admin_panel_back_handler = bot.callback_query_handler(lambda c: c.data == "admin_panel")(admin_panel_cb)
 admin_my_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_my_tickets")(admin_list_my_tickets)
+
+# Админ: назад к списку его обращений
+admin_back_to_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_back_to_tickets")(admin_back_to_tickets)
 
 # Админ: рассылка
 admin_broadcast_start_handler = bot.callback_query_handler(lambda c: c.data == "admin_broadcast")(admin_start_broadcast)
