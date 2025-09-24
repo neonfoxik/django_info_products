@@ -855,10 +855,13 @@ def admin_list_open_tickets(call: CallbackQuery) -> None:
         from bot.keyboards import get_admin_open_tickets_markup
         tickets = SupportTicket.objects.filter(status__in=["open", "in_progress"], assigned_admin__isnull=True).order_by("-created_at")
         if not tickets.exists():
+            from bot.keyboards import get_admin_open_tickets_markup
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text="Нет активных свободных обращений.")
+                text="Нет активных свободных обращений.",
+                reply_markup=get_admin_open_tickets_markup([])
+            )
             bot.answer_callback_query(call.id)
             return
 
@@ -880,10 +883,13 @@ def admin_list_in_progress_tickets(call: CallbackQuery) -> None:
         from bot.keyboards import get_admin_in_progress_tickets_markup
         tickets = SupportTicket.objects.filter(status="in_progress").order_by("-updated_at")
         if not tickets.exists():
+            from bot.keyboards import get_admin_in_progress_tickets_markup
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                text="Нет обращений в обработке.")
+                text="Нет обращений в обработке.",
+                reply_markup=get_admin_in_progress_tickets_markup([])
+            )
             bot.answer_callback_query(call.id)
             return
 
