@@ -1054,11 +1054,34 @@ def decline_support_ticket(call: CallbackQuery) -> None:
     """Админ отказывается от обращения (ничего не меняем в тикете)"""
     try:
         ticket_id = int(call.data.split('_')[-1])
-        bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            text=f"❌ Вы отказались от обращения #{ticket_id}.")
-        bot.answer_callback_query(call.id)
+        # Показываем список обращений админа вместо простого сообщения
+        admin = User.objects.get(telegram_id=call.message.chat.id)
+        from bot.keyboards import get_admin_my_tickets_markup
+        tickets = SupportTicket.objects.filter(
+            assigned_admin=admin,
+            status__in=['open', 'in_progress']
+        ).order_by('-last_message_at','-created_at')
+
+        if not tickets.exists():
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="У вас нет активных обращений.",
+                reply_markup=get_admin_my_tickets_markup([])
+            )
+        else:
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text="📋 Ваши обращения:\n\nВыберите обращение для просмотра или продолжения переписки:",
+                reply_markup=get_admin_my_tickets_markup(list(tickets))
+            )
+
+        # На всякий случай очищаем состояние ответа
+        if call.message.chat.id in admin_response_state:
+            del admin_response_state[call.message.chat.id]
+
+        bot.answer_callback_query(call.id, text=f"❌ Отказ от обращения #{ticket_id}")
     except Exception as e:
         logger.error(f"Ошибка в decline_support_ticket: {e}")
         bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
