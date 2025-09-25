@@ -260,6 +260,17 @@ def get_admin_my_tickets_markup(tickets: list):
     return markup
 
 
+def get_admin_tickets_hub_markup():
+    """Хаб админ-обращений: выбор раздела"""
+    markup = InlineKeyboardMarkup()
+    open_btn = InlineKeyboardButton("📬 Свободные обращения", callback_data="admin_open_tickets")
+    my_btn = InlineKeyboardButton("📂 Мои обращения", callback_data="admin_my_tickets")
+    in_progress_btn = InlineKeyboardButton("🟡 В обработке", callback_data="admin_in_progress_tickets")
+    back_btn = InlineKeyboardButton("⬅️ Админ-панель", callback_data="admin_panel")
+    markup.add(open_btn).add(my_btn).add(in_progress_btn).add(back_btn)
+    return markup
+
+
 def get_promocode_menu_markup():
     """Клавиатура меню промокодов"""
     markup = InlineKeyboardMarkup()
