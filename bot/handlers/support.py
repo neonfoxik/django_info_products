@@ -735,10 +735,10 @@ def handle_admin_response(message: Message) -> None:
             reply_markup=get_close_ticket_markup()
         )
         
-        # Подтверждаем админу
+        # Отображаем отправленный ответ у админа (эхо-сообщение)
         bot.send_message(
             chat_id=chat_id,
-            text=ADMIN_RESPONSE_SENT_TEXT,
+            text=f"✅ Ответ отправлен пользователю.\n\nВы: {message.text}",
             reply_markup=get_admin_response_markup(ticket_id)
         )
         # Обновляем тикет: прочитано админом, непрочитано пользователем
@@ -1058,8 +1058,18 @@ def send_ticket_files_to_admin(call: CallbackQuery) -> None:
             bot.answer_callback_query(call.id, "Файлы не найдены")
             return
 
+        # Инициализируем учет отправленных файлов
+        if not getattr(admin, 'received_ticket_files', None):
+            admin.received_ticket_files = {}
+        ticket_key = str(ticket.id)
+        already_sent_ids = set(admin.received_ticket_files.get(ticket_key, []))
+
         sent = 0
+        newly_sent_ids = []
         for msg in media_messages:
+            # Пропускаем, если этот файл уже отправлялся этому админу
+            if msg.id in already_sent_ids:
+                continue
             try:
                 caption = msg.caption or f"Файл из обращения #{ticket.id}"
                 if msg.content_type == 'photo' and msg.file_id:
@@ -1072,11 +1082,17 @@ def send_ticket_files_to_admin(call: CallbackQuery) -> None:
                     # На случай неизвестного типа
                     bot.send_message(admin.telegram_id, f"Вложение ({msg.content_type}) без file_id")
                 sent += 1
+                newly_sent_ids.append(msg.id)
             except Exception as e:
                 logger.error(f"Ошибка отправки файла админу {admin.telegram_id}: {e}")
                 continue
 
-        bot.answer_callback_query(call.id, f"Отправлено файлов: {sent}")
+        # Сохраняем прогресс отправленных файлов
+        if newly_sent_ids:
+            admin.received_ticket_files[ticket_key] = list(already_sent_ids.union(newly_sent_ids))
+            admin.save()
+
+        bot.answer_callback_query(call.id, f"Отправлено новых файлов: {sent}")
     except Exception as e:
         logger.error(f"Ошибка в send_ticket_files_to_admin: {e}")
         bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")

@@ -43,7 +43,7 @@ from bot.handlers.promocodes import (
     promocode_toggle, promocode_delete, get_user_promocode,
     promocode_select_category, user_select_category,
     handle_promocode_text, handle_promocode_document, promocode_select_category_file,
-    promocode_choose_actions, promocode_back_to_category
+    promocode_choose_actions, promocode_back_to_category, promocode_state
 )
 
 
@@ -172,9 +172,18 @@ support_media_handler = bot.message_handler(content_types=['photo','video','docu
 # Явный обработчик для фотографий (остается на случай, когда не активна поддержка)
 photo_handler = bot.message_handler(content_types=['photo'])(check_screenshot)
 
+# Приоритетные обработчики для поддержки
+from bot.handlers.support import admin_response_state, support_state, handle_admin_response, handle_support_message
+
+# 1) Текст пользователя в режиме поддержки – сразу в обработчик поддержки
+support_text_handler = bot.message_handler(func=lambda m: m.chat.id in support_state, content_types=['text'])(handle_support_message)
+
+# 2) Текст админа в режиме ответа – сразу пользователю
+admin_text_response_handler = bot.message_handler(func=lambda m: m.chat.id in admin_response_state, content_types=['text'])(handle_admin_response)
+
 # Обработчики загрузки промокодов (текст/файл) при активном состоянии добавления
-promocode_text_handler = bot.message_handler(content_types=['text'])(handle_promocode_text)
-promocode_document_handler = bot.message_handler(content_types=['document'])(handle_promocode_document)
+promocode_text_handler = bot.message_handler(func=lambda m: (m.chat.id in promocode_state) and bool(promocode_state.get(m.chat.id, {}).get("awaiting_promocodes")), content_types=['text'])(handle_promocode_text)
+promocode_document_handler = bot.message_handler(func=lambda m: (m.chat.id in promocode_state) and bool(promocode_state.get(m.chat.id, {}).get("awaiting_promocodes")), content_types=['document'])(handle_promocode_document)
 
 # Общий обработчик сообщений (должен идти после специализированных обработчиков)
 text_handler = bot.message_handler(func=lambda message: True)(chat_with_ai)

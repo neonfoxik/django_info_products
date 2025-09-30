@@ -75,6 +75,22 @@ class User(models.Model):
         verbose_name='Полученный промокод',
         help_text='Промокод, который получил пользователь'
     )
+    received_promocodes_by_category = models.JSONField(
+        null=True,
+        blank=True,
+        default=dict,
+        verbose_name='Полученные промокоды по категориям',
+        help_text='Словарь с полученными промокодами по категориям: {category_id: promocode}'
+    )
+
+    # Ключ: ticket_id (str), значение: список ID сообщений с файлами, уже отправленных администратору
+    received_ticket_files = models.JSONField(
+        null=True,
+        blank=True,
+        default=dict,
+        verbose_name='Отправленные файлы тикетов администратору',
+        help_text='Какие файлы (ID сообщений) по каждому тикету уже были отправлены этому администратору'
+    )
 
     def __str__(self):
         return str(self.user_name)

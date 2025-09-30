@@ -12,7 +12,7 @@ main_markup = InlineKeyboardMarkup()
 btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog")
 btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="help_main")
 btn3 = InlineKeyboardButton("🛡️ Гарантия", callback_data="warranty_main_menu")
-btn4 = InlineKeyboardButton("🎫 Получить промокод", callback_data="get_promocode")
+btn4 = InlineKeyboardButton("🎁 Получить подарок", callback_data="get_promocode")
 main_markup.add(btn1).add(btn2).add(btn3).add(btn4)
 
 def get_main_markup_for_user(user_id: int) -> InlineKeyboardMarkup:
@@ -21,7 +21,7 @@ def get_main_markup_for_user(user_id: int) -> InlineKeyboardMarkup:
     btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog")
     btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="help_main")
     btn3 = InlineKeyboardButton("🛡️ Гарантия", callback_data="warranty_main_menu")
-    btn4 = InlineKeyboardButton("🎫 Получить промокод", callback_data="get_promocode")
+    btn4 = InlineKeyboardButton("🎁 Получить подарок", callback_data="get_promocode")
     
     markup.add(btn1).add(btn2).add(btn3).add(btn4)
     

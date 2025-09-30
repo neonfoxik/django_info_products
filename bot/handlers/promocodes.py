@@ -10,6 +10,7 @@ from bot.keyboards import (
     get_categories_markup,
     get_promocode_categories_admin_markup,
     get_promocode_category_actions_markup,
+    back_to_main_markup,
 )
 
 
@@ -439,21 +440,14 @@ def get_user_promocode(call: CallbackQuery) -> None:
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
         
-        # Проверяем, не получал ли пользователь уже промокод
-        if user.received_promocode:
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=f"🎫 Вы уже получили промокод!\n\n"
-                     f"Ваш промокод: **{user.received_promocode}**\n\n"
-                     f"Один пользователь может получить только один промокод.",
-                parse_mode='Markdown'
-            )
-            bot.answer_callback_query(call.id, "Промокод уже получен")
-            return
+        # Получаем все активные категории с доступными промокодами
+        all_categories = PromoCodeCategory.objects.filter(
+            is_active=True, 
+            promocodes__is_active=True, 
+            promocodes__is_used=False
+        ).distinct().order_by('name')
         
-        categories = PromoCodeCategory.objects.filter(is_active=True, promocodes__is_active=True, promocodes__is_used=False).distinct().order_by('name')
-        if not categories.exists():
+        if not all_categories.exists():
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
@@ -462,11 +456,48 @@ def get_user_promocode(call: CallbackQuery) -> None:
             )
             bot.answer_callback_query(call.id, "Нет доступных промокодов")
             return
+        
+        # Инициализируем словарь полученных промокодов, если его нет
+        if not user.received_promocodes_by_category:
+            user.received_promocodes_by_category = {}
+            user.save()
+        
+        # Фильтруем категории, из которых пользователь еще не получал промокоды
+        available_categories = []
+        for category in all_categories:
+            if str(category.id) not in user.received_promocodes_by_category:
+                available_categories.append(category)
+        
+        if not available_categories:
+            # Показываем все полученные промокоды (не завися от наличия доступных категорий)
+            received_text = "🎫 Вы уже получили промокоды во всех доступных категориях!\n\n"
+            try:
+                for cat_id_str, promocode in (user.received_promocodes_by_category or {}).items():
+                    try:
+                        cat = PromoCodeCategory.objects.get(id=int(cat_id_str))
+                        received_text += f"**{cat.name}**: {promocode}\n"
+                    except Exception:
+                        received_text += f"Промокод: {promocode}\n"
+            except Exception:
+                pass
+
+            received_text += "\n💡 Вы можете получить по одному промокоду в каждой категории."
+
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=received_text,
+                parse_mode='Markdown',
+                reply_markup=back_to_main_markup
+            )
+            bot.answer_callback_query(call.id, "Все промокоды получены")
+            return
+        
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="Выберите категорию промокода:",
-            reply_markup=get_categories_markup(categories, prefix="get_promocode_cat", back_callback="back_to_main")
+            text="🎁 Выберите категорию подарка:",
+            reply_markup=get_categories_markup(available_categories, prefix="get_promocode_cat", back_callback="back_to_main")
         )
         bot.answer_callback_query(call.id)
         
@@ -605,6 +636,15 @@ def user_select_category(call: CallbackQuery) -> None:
         user = User.objects.get(telegram_id=call.message.chat.id)
         cat_id = int(call.data.split('_')[-1])
         category = PromoCodeCategory.objects.get(id=cat_id, is_active=True)
+        
+        # Проверяем, не получал ли пользователь уже промокод из этой категории
+        if not user.received_promocodes_by_category:
+            user.received_promocodes_by_category = {}
+        
+        if str(cat_id) in user.received_promocodes_by_category:
+            bot.answer_callback_query(call.id, "Вы уже получили промокод из этой категории")
+            return
+        
         available_promo = PromoCode.objects.filter(
             is_active=True,
             is_used=False,
@@ -613,21 +653,40 @@ def user_select_category(call: CallbackQuery) -> None:
         if not available_promo:
             bot.answer_callback_query(call.id, "Нет доступных промокодов в этой категории")
             return
+        
         promo_code = available_promo.code
-        user.received_promocode = promo_code
+        
+        # Сохраняем промокод в новой структуре данных
+        user.received_promocodes_by_category[str(cat_id)] = promo_code
         user.save()
+        
+        # Удаляем использованный промокод
         available_promo.delete()
+        
+        # Показываем все полученные промокоды пользователя
+        received_text = f"🎉 Поздравляем! Вы получили подарок в категории {category.name}!\n\n"
+        received_text += f"**Ваш промокод: {promo_code}**\n\n"
+        
+        # Добавляем информацию о других полученных промокодах
+        if len(user.received_promocodes_by_category) > 1:
+            received_text += "📋 Ваши полученные подарки:\n"
+            for cat_id_str, promocode in user.received_promocodes_by_category.items():
+                try:
+                    cat = PromoCodeCategory.objects.get(id=int(cat_id_str))
+                    received_text += f"• **{cat.name}**: {promocode}\n"
+                except:
+                    received_text += f"• Промокод: {promocode}\n"
+        
+        received_text += "\n💡 Вы можете получить по одному подарку в каждой категории!"
+        
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=(
-                f"🎉 Поздравляем! Вы получили промокод в категории {category.name}!\n\n"
-                f"**Ваш промокод: {promo_code}**\n\n"
-                f"💡 Используйте его при оформлении заказа для получения скидки или специального предложения!"
-            ),
-            parse_mode='Markdown'
+            text=received_text,
+            parse_mode='Markdown',
+            reply_markup=back_to_main_markup
         )
-        bot.answer_callback_query(call.id, "Промокод получен!")
+        bot.answer_callback_query(call.id, "Подарок получен!")
     except Exception as e:
         logger.error(f"Ошибка в user_select_category: {e}")
         bot.answer_callback_query(call.id, "Произошла ошибка")
