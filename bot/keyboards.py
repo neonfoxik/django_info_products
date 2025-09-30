@@ -275,9 +275,8 @@ def get_promocode_menu_markup():
     """Клавиатура меню промокодов"""
     markup = InlineKeyboardMarkup()
     add_btn = InlineKeyboardButton("➕ Добавить промокоды", callback_data="promocode_add")
-    list_btn = InlineKeyboardButton("📋 Список промокодов", callback_data="promocode_list")
     back_btn = InlineKeyboardButton("⬅️ Админ-панель", callback_data="admin_panel")
-    markup.add(add_btn).add(list_btn).add(back_btn)
+    markup.add(add_btn).add(back_btn)
     return markup
 
 
@@ -302,4 +301,41 @@ def get_promocode_detail_markup(promo_id):
     delete_btn = InlineKeyboardButton("🗑️ Удалить", callback_data=f"promocode_delete_{promo_id}")
     back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="promocode_list")
     markup.add(toggle_btn).add(delete_btn).add(back_btn)
+    return markup
+
+
+def get_categories_markup(categories, prefix: str, back_callback: str):
+    """Генерирует список категорий как инлайн-кнопки.
+    prefix: строка префикса callback_data, например 'promocode_cat' или 'get_promocode_cat'
+    back_callback: callback_data для кнопки Назад
+    """
+    markup = InlineKeyboardMarkup()
+    for cat in categories:
+        btn = InlineKeyboardButton(cat.name, callback_data=f"{prefix}_{cat.id}")
+        markup.add(btn)
+    back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)
+    markup.add(back_btn)
+    return markup
+
+
+def get_promocode_categories_admin_markup(categories, back_callback: str):
+    """Список категорий (только названия). Дальше пользователь выберет способ загрузки."""
+    markup = InlineKeyboardMarkup()
+    for cat in categories:
+        btn = InlineKeyboardButton(cat.name, callback_data=f"promocode_cat_select_{cat.id}")
+        markup.add(btn)
+    back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=back_callback)
+    markup.add(back_btn)
+    return markup
+
+
+def get_promocode_category_actions_markup(category_id: int, back_callback: str):
+    """Меню действий для выбранной категории: текстом или файлом + назад к списку категорий"""
+    markup = InlineKeyboardMarkup()
+    text_btn = InlineKeyboardButton("➕ Загрузить списком (текст)", callback_data=f"promocode_cat_text_{category_id}")
+    file_btn = InlineKeyboardButton("📄 Загрузить файлом (.txt)", callback_data=f"promocode_cat_file_{category_id}")
+    back_btn = InlineKeyboardButton("⬅️ К списку категорий", callback_data=back_callback)
+    markup.add(text_btn)
+    markup.add(file_btn)
+    markup.add(back_btn)
     return markup

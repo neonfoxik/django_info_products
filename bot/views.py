@@ -40,7 +40,10 @@ from bot.handlers.support import (
 )
 from bot.handlers.promocodes import (
     promocode_menu, promocode_add, promocode_list, promocode_detail,
-    promocode_toggle, promocode_delete, get_user_promocode
+    promocode_toggle, promocode_delete, get_user_promocode,
+    promocode_select_category, user_select_category,
+    handle_promocode_text, handle_promocode_document, promocode_select_category_file,
+    promocode_choose_actions, promocode_back_to_category
 )
 
 
@@ -146,6 +149,12 @@ contact_handler = bot.message_handler(content_types=['contact'])(process_warrant
 # Роутер медиа: если пользователь в поддержке, отправляем в тикет; иначе оставляем прежнее поведение (фото -> гарантия)
 def support_media_router(message):
     try:
+        # Сначала проверяем, не загружает ли пользователь промокоды
+        from bot.handlers.promocodes import promocode_state, handle_promocode_document
+        if message.chat.id in promocode_state and promocode_state[message.chat.id].get("awaiting_promocodes"):
+            if handle_promocode_document(message):
+                return
+        
         from bot.handlers.support import support_state, handle_support_message
         if message.chat.id in support_state:
             handle_support_message(message)
@@ -162,6 +171,10 @@ support_media_handler = bot.message_handler(content_types=['photo','video','docu
 
 # Явный обработчик для фотографий (остается на случай, когда не активна поддержка)
 photo_handler = bot.message_handler(content_types=['photo'])(check_screenshot)
+
+# Обработчики загрузки промокодов (текст/файл) при активном состоянии добавления
+promocode_text_handler = bot.message_handler(content_types=['text'])(handle_promocode_text)
+promocode_document_handler = bot.message_handler(content_types=['document'])(handle_promocode_document)
 
 # Общий обработчик сообщений (должен идти после специализированных обработчиков)
 text_handler = bot.message_handler(func=lambda message: True)(chat_with_ai)
@@ -253,6 +266,11 @@ promocode_delete_handler = bot.callback_query_handler(lambda c: c.data.startswit
 
 # Пользователь: получение промокода
 get_promocode_handler = bot.callback_query_handler(lambda c: c.data == "get_promocode")(get_user_promocode)
+promocode_select_category_handler = bot.callback_query_handler(lambda c: c.data.startswith("promocode_cat_text_"))(promocode_select_category)
+promocode_choose_actions_handler = bot.callback_query_handler(lambda c: c.data.startswith("promocode_cat_select_"))(promocode_choose_actions)
+user_select_category_handler = bot.callback_query_handler(lambda c: c.data.startswith("get_promocode_cat_"))(user_select_category)
+promocode_select_category_file_handler = bot.callback_query_handler(lambda c: c.data.startswith("promocode_cat_file_"))(promocode_select_category_file)
+promocode_back_to_category_handler = bot.callback_query_handler(lambda c: c.data.startswith("promocode_back_to_category_"))(promocode_back_to_category)
 
 # Старые обработчики поддержки (для обратной совместимости)
 support_ozon_old_handler = bot.callback_query_handler(lambda c: c.data == "help_ozon")(support_ozon)

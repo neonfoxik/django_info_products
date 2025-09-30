@@ -1643,7 +1643,8 @@ def admin_panel(call: CallbackQuery) -> None:
     """Показывает админ-панель"""
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
-        if (user.is_admin==False):
+        # Доступ к админ-панели: любой админ-тип
+        if not (user.is_admin or getattr(user, 'is_super_admin', False) or getattr(user, 'is_ozon_admin', False) or getattr(user, 'is_wb_admin', False)):
             bot.answer_callback_query(
                 callback_query_id=call.id,
                 text="У вас нет доступа к админ-панели"
@@ -1684,7 +1685,7 @@ def send_excel_to_admin(call: CallbackQuery) -> None:
     """Отправляет Excel-таблицу админу"""
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
-        if (user.is_admin==False):
+        if not (user.is_admin or getattr(user, 'is_super_admin', False) or getattr(user, 'is_ozon_admin', False) or getattr(user, 'is_wb_admin', False)):
             bot.answer_callback_query(
                 callback_query_id=call.id,
                 text="У вас нет доступа к админ-панели"
@@ -1738,7 +1739,7 @@ def handle_admin_panel(message: Message) -> None:
     """Обработчик кнопки админ-панели"""
     try:
         user = User.objects.get(telegram_id=message.chat.id)
-        if (user.is_admin==False):
+        if not (user.is_admin or getattr(user, 'is_super_admin', False) or getattr(user, 'is_ozon_admin', False) or getattr(user, 'is_wb_admin', False)):
             bot.answer_callback_query(
                 callback_query_id=message.id,
                 text="У вас нет доступа к админ-панели"
@@ -1779,7 +1780,7 @@ def admin_command(message: Message) -> None:
     """Обработчик команды /admin"""
     try:
         user = User.objects.get(telegram_id=message.chat.id)
-        if (user.is_admin==False):
+        if not (user.is_admin or getattr(user, 'is_super_admin', False) or getattr(user, 'is_ozon_admin', False) or getattr(user, 'is_wb_admin', False)):
             bot.answer_callback_query(
                 callback_query_id=message.id,
                 text="У вас нет доступа к админ-панели"
@@ -1818,7 +1819,7 @@ def show_admin_panel(call: CallbackQuery) -> None:
     """Показывает админ-панель для callback запросов"""
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
-        if not user.is_admin:
+        if not (user.is_admin or getattr(user, 'is_super_admin', False) or getattr(user, 'is_ozon_admin', False) or getattr(user, 'is_wb_admin', False)):
             bot.answer_callback_query(call.id, "У вас нет доступа к админ-панели")
             return
         

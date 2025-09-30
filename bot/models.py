@@ -22,6 +22,18 @@ class User(models.Model):
         default=False,
         verbose_name='Является ли администратором'
     )
+    is_super_admin = models.BooleanField(
+        default=False,
+        verbose_name='Главный админ'
+    )
+    is_ozon_admin = models.BooleanField(
+        default=False,
+        verbose_name='Админ Озон'
+    )
+    is_wb_admin = models.BooleanField(
+        default=False,
+        verbose_name='Админ ВБ'
+    )
     is_ai = models.BooleanField(
         default=False,
         verbose_name='Используется ли AI'
@@ -514,8 +526,40 @@ class BroadcastMessage(models.Model):
         verbose_name_plural = 'Рассылки'
 
 
+class PromoCodeCategory(models.Model):
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        verbose_name='Название категории'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Активна'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    
+    def __str__(self):
+        return self.name
+    
+    class Meta:
+        verbose_name = 'Категория промокодов'
+        verbose_name_plural = 'Категории промокодов'
+        ordering = ['name']
+
+
 class PromoCode(models.Model):
     """Модель для хранения промокодов"""
+    category = models.ForeignKey(
+        PromoCodeCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='promocodes',
+        verbose_name='Категория'
+    )
     code = models.CharField(
         max_length=50,
         unique=True,

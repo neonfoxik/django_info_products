@@ -27,6 +27,36 @@ admin_response_state = {}
 broadcast_state = {}
 
 
+# ===== Helpers for admin roles and permissions =====
+def is_any_admin(u: User) -> bool:
+    return bool(getattr(u, 'is_super_admin', False) or getattr(u, 'is_ozon_admin', False) or getattr(u, 'is_wb_admin', False) or getattr(u, 'is_admin', False))
+
+
+def is_super_admin(u: User) -> bool:
+    return bool(getattr(u, 'is_super_admin', False))
+
+
+def admin_can_handle_ticket(u: User, t: SupportTicket) -> bool:
+    if is_super_admin(u) or getattr(u, 'is_admin', False):
+        return True
+    if t.platform == 'ozon' and getattr(u, 'is_ozon_admin', False):
+        return True
+    if t.platform == 'wildberries' and getattr(u, 'is_wb_admin', False):
+        return True
+    return False
+
+
+def get_relevant_admins_for_ticket(t: SupportTicket):
+    qs = User.objects.none()
+    base_all = User.objects.filter(is_admin=True)
+    super_admins = User.objects.filter(is_super_admin=True)
+    if t.platform == 'ozon':
+        platform_admins = User.objects.filter(is_ozon_admin=True)
+    else:
+        platform_admins = User.objects.filter(is_wb_admin=True)
+    return (base_all | super_admins | platform_admins).distinct()
+
+
 def show_support_menu(call: CallbackQuery) -> None:
     """Показывает главное меню поддержки"""
     try:
@@ -588,6 +618,11 @@ def accept_support_ticket(call: CallbackQuery) -> None:
                 bot.answer_callback_query(call.id, ADMIN_TICKET_ALREADY_ASSIGNED_TEXT)
                 return
             
+            # Проверяем право принимать по платформе (кроме супер/общих админов)
+            if not admin_can_handle_ticket(admin, ticket):
+                bot.answer_callback_query(call.id, "Нет доступа к этой платформе")
+                return
+
             # Назначаем админа
             ticket.assigned_admin = admin
             ticket.status = 'in_progress'
@@ -644,7 +679,7 @@ def accept_support_ticket(call: CallbackQuery) -> None:
             logger.error(f"Ошибка отправки уведомления пользователю {ticket.user.telegram_id}: {e}")
         
         # Уведомляем других админов, что обращение принято
-        admins = User.objects.filter(is_admin=True).exclude(telegram_id=admin.telegram_id)
+        admins = get_relevant_admins_for_ticket(ticket).exclude(telegram_id=admin.telegram_id)
         for other_admin in admins:
             try:
                 bot.send_message(
@@ -853,7 +888,16 @@ def admin_list_open_tickets(call: CallbackQuery) -> None:
     """Показывает админу все открытые обращения без назначенного администратора"""
     try:
         from bot.keyboards import get_admin_open_tickets_markup
-        tickets = SupportTicket.objects.filter(status__in=["open", "in_progress"], assigned_admin__isnull=True).order_by("-created_at")
+        # Свободные тикеты: показываем релевантным админам по платформе, супер-админ видит все
+        admin = User.objects.get(telegram_id=call.message.chat.id)
+        base_qs = SupportTicket.objects.filter(status__in=["open", "in_progress"], assigned_admin__isnull=True)
+        if is_super_admin(admin) or getattr(admin, 'is_admin', False):
+            tickets = base_qs.order_by("-created_at")
+        else:
+            tickets = base_qs.filter(
+                platform__in=(['ozon'] if getattr(admin, 'is_ozon_admin', False) else []) +
+                              (['wildberries'] if getattr(admin, 'is_wb_admin', False) else [])
+            ).order_by("-created_at")
         if not tickets.exists():
             from bot.keyboards import get_admin_open_tickets_markup
             bot.edit_message_text(
@@ -881,7 +925,16 @@ def admin_list_in_progress_tickets(call: CallbackQuery) -> None:
     """Показывает админу все обращения в обработке (можно перехватить)"""
     try:
         from bot.keyboards import get_admin_in_progress_tickets_markup
-        tickets = SupportTicket.objects.filter(status="in_progress").order_by("-updated_at")
+        # В обработке: супер/общие админы видят все; платформенные видят только свою платформу
+        admin = User.objects.get(telegram_id=call.message.chat.id)
+        base_qs = SupportTicket.objects.filter(status="in_progress")
+        if is_super_admin(admin) or getattr(admin, 'is_admin', False):
+            tickets = base_qs.order_by("-updated_at")
+        else:
+            tickets = base_qs.filter(
+                platform__in=(['ozon'] if getattr(admin, 'is_ozon_admin', False) else []) +
+                              (['wildberries'] if getattr(admin, 'is_wb_admin', False) else [])
+            ).order_by("-updated_at")
         if not tickets.exists():
             from bot.keyboards import get_admin_in_progress_tickets_markup
             bot.edit_message_text(
@@ -912,6 +965,11 @@ def takeover_support_ticket(call: CallbackQuery) -> None:
         admin = User.objects.get(telegram_id=call.message.chat.id)
         with transaction.atomic():
             ticket = SupportTicket.objects.select_for_update().get(id=ticket_id)
+            # Проверяем право перехватывать по платформе (кроме супер/общих админов)
+            if not admin_can_handle_ticket(admin, ticket):
+                bot.answer_callback_query(call.id, "Нет доступа к этой платформе")
+                return
+
             # Назначаем текущего админа
             ticket.assigned_admin = admin
             ticket.status = 'in_progress'
@@ -968,7 +1026,7 @@ def takeover_support_ticket(call: CallbackQuery) -> None:
 
         # Уведомляем предыдущего администратора, если был
         try:
-            previous_admins = User.objects.filter(is_admin=True).exclude(telegram_id=admin.telegram_id)
+            previous_admins = get_relevant_admins_for_ticket(ticket).exclude(telegram_id=admin.telegram_id)
             for other_admin in previous_admins:
                 try:
                     bot.send_message(other_admin.telegram_id, f"♻️ Обращение #{ticket_id} было перехвачено администратором {admin.user_name}.")
@@ -1074,9 +1132,9 @@ def decline_support_ticket(call: CallbackQuery) -> None:
 
 
 def notify_admins_about_new_ticket(ticket: SupportTicket) -> None:
-    """Уведомляет всех админов о новом обращении"""
+    """Уведомляет только релевантных админов по платформе и супер-админов"""
     try:
-        admins = User.objects.filter(is_admin=True)
+        admins = get_relevant_admins_for_ticket(ticket)
         for admin in admins:
             try:
                 bot.send_message(
@@ -1128,7 +1186,7 @@ def _forward_to_admins(ticket: SupportTicket, message: Message) -> None:
     if ticket.assigned_admin:
         admins = [ticket.assigned_admin]
     else:
-        admins = list(User.objects.filter(is_admin=True))
+        admins = list(get_relevant_admins_for_ticket(ticket))
 
     for admin in admins:
         try:

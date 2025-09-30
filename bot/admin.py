@@ -1,14 +1,19 @@
 from django.contrib import admin
-from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction, SupportTicket, SupportMessage, OwnerSettings, BroadcastMessage, PromoCode
+from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction, SupportTicket, SupportMessage, OwnerSettings, BroadcastMessage, PromoCode, PromoCodeCategory
 from django import forms
 
 class UserAdmin(admin.ModelAdmin):
-    list_display = ('telegram_id', 'user_name', 'phone_number', 'is_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
+    list_display = ('telegram_id', 'user_name', 'phone_number', 'is_admin', 'is_super_admin', 'is_ozon_admin', 'is_wb_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
     search_fields = ('user_name', 'phone_number', 'telegram_id')
     ordering = ('-telegram_id',)
     fieldsets = (
         (None, {
-            'fields': ('telegram_id', 'user_name', 'phone_number', 'is_admin', 'is_ai', 'chat_history', 'warranty_data', 'screenshots_count', 'last_screenshot_date', 'messages_count', 'last_message_id')
+            'fields': (
+                'telegram_id', 'user_name', 'phone_number',
+                'is_admin', 'is_super_admin', 'is_ozon_admin', 'is_wb_admin',
+                'is_ai', 'chat_history', 'warranty_data', 'screenshots_count',
+                'last_screenshot_date', 'messages_count', 'last_message_id'
+            )
         }),
     )
 
@@ -169,13 +174,13 @@ admin.site.register(BroadcastMessage, BroadcastMessageAdmin)
 
 
 class PromoCodeAdmin(admin.ModelAdmin):
-    list_display = ('code', 'is_used', 'is_active', 'created_at', 'created_by')
-    list_filter = ('is_active', 'is_used', 'created_at')
+    list_display = ('code', 'category', 'is_used', 'is_active', 'created_at', 'created_by')
+    list_filter = ('category', 'is_active', 'is_used', 'created_at')
     search_fields = ('code',)
     readonly_fields = ('created_at',)
     fieldsets = (
         ('Основная информация', {
-            'fields': ('code', 'is_active', 'is_used')
+            'fields': ('code', 'category', 'is_active', 'is_used')
         }),
         ('Системная информация', {
             'fields': ('created_at', 'created_by'),
@@ -185,3 +190,4 @@ class PromoCodeAdmin(admin.ModelAdmin):
 
 
 admin.site.register(PromoCode, PromoCodeAdmin)
+admin.site.register(PromoCodeCategory)
