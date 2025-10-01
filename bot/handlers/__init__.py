@@ -156,6 +156,12 @@ def handle_callback(call: CallbackQuery) -> None:
             admin_back_to_tickets(call)
         elif call.data == "admin_my_tickets":
             admin_list_my_tickets(call)
+        elif call.data.startswith("get_ticket_files_"):
+            from .support import send_ticket_files_to_admin
+            send_ticket_files_to_admin(call)
+        elif call.data.startswith("get_all_ticket_files_"):
+            from .support import send_all_ticket_files_to_admin
+            send_all_ticket_files_to_admin(call)
         elif call.data == "category_header":
             # Заголовки категорий - просто игнорируем нажатие
             bot.answer_callback_query(

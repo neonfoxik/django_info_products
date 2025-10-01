@@ -158,10 +158,12 @@ def get_admin_response_markup(ticket_id):
     """Создает клавиатуру для админа во время ответа на обращение"""
     markup = InlineKeyboardMarkup()
     finish_btn = InlineKeyboardButton("🏁 Завершить обработку", callback_data=f"finish_ticket_{ticket_id}")
-    files_btn = InlineKeyboardButton("📎 Получить файлы", callback_data=f"get_ticket_files_{ticket_id}")
+    files_btn = InlineKeyboardButton("📎 Получить новые файлы", callback_data=f"get_ticket_files_{ticket_id}")
+    files_all_btn = InlineKeyboardButton("📎 Получить все файлы", callback_data=f"get_all_ticket_files_{ticket_id}")
     back_btn = InlineKeyboardButton("⬅️ Назад к обращениям", callback_data="admin_back_to_tickets")
     markup.add(finish_btn)
     markup.add(files_btn)
+    markup.add(files_all_btn)
     markup.add(back_btn)
     return markup
 
@@ -169,8 +171,10 @@ def get_admin_response_markup(ticket_id):
 def get_ticket_files_markup(ticket_id: int):
     """Кнопка под уведомлением: получить все файлы из обращения"""
     markup = InlineKeyboardMarkup()
-    btn = InlineKeyboardButton("📎 Получить файлы", callback_data=f"get_ticket_files_{ticket_id}")
-    markup.add(btn)
+    btn_new = InlineKeyboardButton("📎 Получить новые файлы", callback_data=f"get_ticket_files_{ticket_id}")
+    btn_all = InlineKeyboardButton("📎 Получить все файлы", callback_data=f"get_all_ticket_files_{ticket_id}")
+    markup.add(btn_new)
+    markup.add(btn_all)
     return markup
 
 
@@ -178,10 +182,12 @@ def get_admin_response_with_files_markup(ticket_id):
     """Создает клавиатуру для админа во время ответа на обращение с файлами"""
     markup = InlineKeyboardMarkup()
     finish_btn = InlineKeyboardButton("🏁 Завершить обработку", callback_data=f"finish_ticket_{ticket_id}")
-    files_btn = InlineKeyboardButton("📎 Получить файлы", callback_data=f"get_ticket_files_{ticket_id}")
+    files_btn = InlineKeyboardButton("📎 Получить новые файлы", callback_data=f"get_ticket_files_{ticket_id}")
+    files_all_btn = InlineKeyboardButton("📎 Получить все файлы", callback_data=f"get_all_ticket_files_{ticket_id}")
     back_btn = InlineKeyboardButton("⬅️ Назад к обращениям", callback_data="admin_back_to_tickets")
     markup.add(finish_btn)
     markup.add(files_btn)
+    markup.add(files_all_btn)
     markup.add(back_btn)
     return markup
 

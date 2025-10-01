@@ -35,6 +35,7 @@ from bot.handlers.support import (
     show_user_tickets, show_user_ticket_actions, user_close_ticket, user_open_ticket,
     decline_support_ticket, admin_list_open_tickets, admin_start_broadcast, admin_broadcast_confirm,
     admin_list_my_tickets, admin_list_in_progress_tickets, takeover_support_ticket, send_ticket_files_to_admin,
+    send_all_ticket_files_to_admin,
     admin_back_to_tickets,
     send_broadcast_to_all_users
 )
@@ -240,6 +241,7 @@ finish_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("
 view_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("view_ticket_"))(view_ticket_details)
 takeover_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("takeover_ticket_"))(takeover_support_ticket)
 get_ticket_files_handler = bot.callback_query_handler(lambda c: c.data.startswith("get_ticket_files_"))(send_ticket_files_to_admin)
+get_all_ticket_files_handler = bot.callback_query_handler(lambda c: c.data.startswith("get_all_ticket_files_"))(send_all_ticket_files_to_admin)
 already_assigned_handler = bot.callback_query_handler(lambda c: c.data == "already_assigned")(already_assigned_callback)
 
 # Пользовательские обращения

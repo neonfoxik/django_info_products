@@ -1097,6 +1097,45 @@ def send_ticket_files_to_admin(call: CallbackQuery) -> None:
         logger.error(f"Ошибка в send_ticket_files_to_admin: {e}")
         bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
 
+
+def send_all_ticket_files_to_admin(call: CallbackQuery) -> None:
+    """Отправляет админу все файлы из тикета (включая уже отправленные ранее)."""
+    try:
+        ticket_id = int(call.data.split('_')[-1])
+        admin = User.objects.get(telegram_id=call.message.chat.id)
+        ticket = SupportTicket.objects.get(id=ticket_id)
+
+        if not admin.is_admin:
+            bot.answer_callback_query(call.id, "Нет доступа")
+            return
+
+        media_messages = SupportMessage.objects.filter(ticket=ticket).exclude(content_type='text').order_by('created_at')
+        if not media_messages.exists():
+            bot.answer_callback_query(call.id, "Файлы не найдены")
+            return
+
+        sent = 0
+        for msg in media_messages:
+            try:
+                caption = msg.caption or f"Файл из обращения #{ticket.id}"
+                if msg.content_type == 'photo' and msg.file_id:
+                    bot.send_photo(admin.telegram_id, msg.file_id, caption=caption)
+                elif msg.content_type == 'video' and msg.file_id:
+                    bot.send_video(admin.telegram_id, msg.file_id, caption=caption)
+                elif msg.content_type == 'document' and msg.file_id:
+                    bot.send_document(admin.telegram_id, msg.file_id, caption=caption)
+                else:
+                    bot.send_message(admin.telegram_id, f"Вложение ({msg.content_type}) без file_id")
+                sent += 1
+            except Exception as e:
+                logger.error(f"Ошибка отправки файла админу {admin.telegram_id}: {e}")
+                continue
+
+        bot.answer_callback_query(call.id, f"Отправлено файлов: {sent}")
+    except Exception as e:
+        logger.error(f"Ошибка в send_all_ticket_files_to_admin: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
 def admin_list_my_tickets(call: CallbackQuery) -> None:
     """Показывает обращения, назначенные на текущего админа"""
     try:
@@ -1208,11 +1247,20 @@ def _forward_to_admins(ticket: SupportTicket, message: Message) -> None:
         try:
             header = f"Новое сообщение по обращению #{ticket.id} от {ticket.user.user_name}"
             if getattr(message, 'text', None):
-                bot.send_message(admin.telegram_id, f"{header}\n\n{message.text}", reply_markup=get_admin_ticket_markup(ticket.id))
+                # Если админ назначен на тикет — показываем клавиатуру ответа, иначе — клавиатуру принятия
+                if ticket.assigned_admin and ticket.assigned_admin.telegram_id == admin.telegram_id:
+                    from bot.keyboards import get_admin_response_markup
+                    bot.send_message(admin.telegram_id, f"{header}\n\n{message.text}", reply_markup=get_admin_response_markup(ticket.id))
+                else:
+                    bot.send_message(admin.telegram_id, f"{header}\n\n{message.text}", reply_markup=get_admin_ticket_markup(ticket.id))
             else:
                 # Для медиа не пересылаем файл напрямую — пусть будет кнопка "Получить файлы"
-                from bot.keyboards import get_ticket_files_markup
-                bot.send_message(admin.telegram_id, f"{header}\n\nПолучено вложение. Нажмите, чтобы получить файлы.", reply_markup=get_ticket_files_markup(ticket.id))
+                if ticket.assigned_admin and ticket.assigned_admin.telegram_id == admin.telegram_id:
+                    from bot.keyboards import get_admin_response_with_files_markup
+                    bot.send_message(admin.telegram_id, f"{header}\n\nПолучено вложение. Нажмите, чтобы получить файлы.", reply_markup=get_admin_response_with_files_markup(ticket.id))
+                else:
+                    from bot.keyboards import get_ticket_files_markup
+                    bot.send_message(admin.telegram_id, f"{header}\n\nПолучено вложение. Нажмите, чтобы получить файлы.", reply_markup=get_ticket_files_markup(ticket.id))
         except Exception as e:
             logger.error(f"Ошибка отправки сообщения админу {admin.telegram_id}: {e}")
 
@@ -1224,7 +1272,8 @@ def _notify_admins_user_continues(ticket: SupportTicket) -> None:
         return
     text = f"Пользователь {ticket.user.user_name} продолжает переписку по обращению #{ticket.id}"
     try:
-        from bot.keyboards import get_ticket_files_markup
-        bot.send_message(ticket.assigned_admin.telegram_id, text, reply_markup=get_admin_ticket_markup(ticket.id))
+        # Показываем клавиатуру ответов админа
+        from bot.keyboards import get_admin_response_markup
+        bot.send_message(ticket.assigned_admin.telegram_id, text, reply_markup=get_admin_response_markup(ticket.id))
     except Exception as e:
         logger.error(f"Ошибка отправки уведомления назначенному админу {ticket.assigned_admin.telegram_id}: {e}")
