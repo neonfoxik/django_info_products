@@ -1617,9 +1617,14 @@ def back_to_main(call: CallbackQuery) -> None:
         # Удаляем предыдущие сообщения
         delete_previous_messages(call.message.chat.id, user)
         
-        bot.edit_message_text(
+        # Удаляем текущее сообщение тоже
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass  # Игнорируем ошибку, если не можем удалить
+        
+        bot.send_message(
             chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
             text=MAIN_TEXT,
             reply_markup=get_main_markup_for_user(call.message.chat.id)
         )

@@ -155,20 +155,22 @@ def handle_promocode_text(message: Message) -> bool:
                 logger.error(f"Ошибка создания промокода {code}: {e}")
                 skipped_count += 1
         
-        # Удаляем состояние
-        del promocode_state[message.chat.id]
-        
         # Отправляем результат
         result_text = f"✅ Промокоды обработаны:\n"
         result_text += f"• Создано: {created_count}\n"
         if skipped_count > 0:
             result_text += f"• Пропущено (уже существуют или ошибка): {skipped_count}\n"
         
+        result_text += "\n💡 Инструкции можно добавить в админ-панели Django."
+        
         bot.send_message(
             chat_id=message.chat.id,
             text=result_text,
             reply_markup=get_promocode_menu_markup()
         )
+        
+        # Удаляем состояние
+        del promocode_state[message.chat.id]
         
         return True
         
@@ -258,11 +260,22 @@ def handle_promocode_document(message: Message) -> bool:
                 logger.error(f"Ошибка создания промокода {code}: {e}")
                 skipped_count += 1
 
-        del promocode_state[message.chat.id]
+        # Обновляем состояние для запроса инструкций
+        promocode_state[message.chat.id]["awaiting_promocodes"] = False
+        promocode_state[message.chat.id]["awaiting_instruction"] = True
+        promocode_state[message.chat.id]["created_count"] = created_count
+        promocode_state[message.chat.id]["skipped_count"] = skipped_count
 
-        result_text = f"✅ Файл обработан. Создано: {created_count}"
+        # Запрашиваем инструкции
+        result_text = f"✅ Файл обработан:\n"
+        result_text += f"• Создано промокодов: {created_count}\n"
         if skipped_count:
-            result_text += f"\nПропущено: {skipped_count}"
+            result_text += f"• Пропущено: {skipped_count}\n"
+        result_text += "\n💡 Инструкции можно добавить в админ-панели Django."
+        
+        # Удаляем состояние
+        del promocode_state[message.chat.id]
+        
         bot.send_message(chat_id=message.chat.id, text=result_text, reply_markup=get_promocode_menu_markup())
         return True
     except Exception as e:
@@ -438,66 +451,32 @@ def promocode_delete(call: CallbackQuery) -> None:
 def get_user_promocode(call: CallbackQuery) -> None:
     """Пользователь выбирает категорию, затем получает промокод"""
     try:
+        # Удаляем предыдущее сообщение (может быть инструкция)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass  # Игнорируем ошибку, если не можем удалить
+        
         user = User.objects.get(telegram_id=call.message.chat.id)
         
-        # Получаем все активные категории с доступными промокодами
+        # Получаем все активные категории (независимо от статуса промокодов)
         all_categories = PromoCodeCategory.objects.filter(
-            is_active=True, 
-            promocodes__is_active=True, 
-            promocodes__is_used=False
-        ).distinct().order_by('name')
+            is_active=True
+        ).order_by('name')
         
         if not all_categories.exists():
-            bot.edit_message_text(
+            bot.send_message(
                 chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text="😔 К сожалению, сейчас нет доступных промокодов.",
+                text="😔 К сожалению, сейчас нет доступных категорий промокодов.",
                 parse_mode='Markdown'
             )
-            bot.answer_callback_query(call.id, "Нет доступных промокодов")
+            bot.answer_callback_query(call.id, "Нет доступных категорий")
             return
         
-        # Инициализируем словарь полученных промокодов, если его нет
-        if not user.received_promocodes_by_category:
-            user.received_promocodes_by_category = {}
-            user.save()
-        
-        # Фильтруем категории, из которых пользователь еще не получал промокоды
-        available_categories = []
-        for category in all_categories:
-            if str(category.id) not in user.received_promocodes_by_category:
-                available_categories.append(category)
-        
-        if not available_categories:
-            # Показываем все полученные промокоды (не завися от наличия доступных категорий)
-            received_text = "🎫 Вы уже получили промокоды во всех доступных категориях!\n\n"
-            try:
-                for cat_id_str, promocode in (user.received_promocodes_by_category or {}).items():
-                    try:
-                        cat = PromoCodeCategory.objects.get(id=int(cat_id_str))
-                        received_text += f"**{cat.name}**: {promocode}\n"
-                    except Exception:
-                        received_text += f"Промокод: {promocode}\n"
-            except Exception:
-                pass
-
-            received_text += "\n💡 Вы можете получить по одному промокоду в каждой категории."
-
-            bot.edit_message_text(
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                text=received_text,
-                parse_mode='Markdown',
-                reply_markup=back_to_main_markup
-            )
-            bot.answer_callback_query(call.id, "Все промокоды получены")
-            return
-        
-        bot.edit_message_text(
+        bot.send_message(
             chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
             text="🎁 Выберите категорию подарка:",
-            reply_markup=get_categories_markup(available_categories, prefix="get_promocode_cat", back_callback="back_to_main")
+            reply_markup=get_categories_markup(all_categories, prefix="get_promocode_cat", back_callback="back_to_main")
         )
         bot.answer_callback_query(call.id)
         
@@ -631,7 +610,7 @@ def promocode_back_to_category(call: CallbackQuery) -> None:
         bot.answer_callback_query(call.id, "Произошла ошибка")
 
 def user_select_category(call: CallbackQuery) -> None:
-    """Пользователь выбрал категорию и получает промокод из нее"""
+    """Пользователь выбрал категорию - показываем кнопку 'Получить промокод'"""
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
         cat_id = int(call.data.split('_')[-1])
@@ -642,7 +621,41 @@ def user_select_category(call: CallbackQuery) -> None:
             user.received_promocodes_by_category = {}
         
         if str(cat_id) in user.received_promocodes_by_category:
-            bot.answer_callback_query(call.id, "Вы уже получили промокод из этой категории")
+            # Удаляем старое сообщение (список категорий) перед показом информации о полученном промокоде
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass  # Игнорируем ошибку, если не можем удалить
+            
+            # Показываем полученный промокод + кнопки инструкция и назад
+            received_promo = user.received_promocodes_by_category[str(cat_id)]
+            
+            text = f"🎁 Категория: {category.name}\n\n"
+            text += f"🎫 **Ваш промокод: `{received_promo}`**\n\n"
+            text += "📋 Дополнительные действия:"
+            
+            # Проверяем наличие файла инструкции для отображения кнопки
+            has_instruction_file = bool(category.instruction_file)
+            
+            # Создаем клавиатуру с кнопками
+            from bot.keyboards import InlineKeyboardMarkup, InlineKeyboardButton
+            markup = InlineKeyboardMarkup()
+            
+            # Кнопка инструкции (если есть файл)
+            if has_instruction_file:
+                markup.add(InlineKeyboardButton("📋 Инструкция", callback_data=f"get_instruction_{cat_id}"))
+            
+            markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+            
+            # Отправляем новое сообщение (предыдущее уже удалено)
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text=text,
+                parse_mode='Markdown',
+                reply_markup=markup
+            )
+            
+            bot.answer_callback_query(call.id, "Промокод уже получен")
             return
         
         available_promo = PromoCode.objects.filter(
@@ -651,33 +664,191 @@ def user_select_category(call: CallbackQuery) -> None:
             category=category
         ).first()
         if not available_promo:
+            # Удаляем старое сообщение (список категорий) перед показом сообщения об отсутствии промокодов
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass  # Игнорируем ошибку, если не можем удалить
+            
+            # Отправляем новое сообщение
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text=f"😔 К сожалению, в категории '{category.name}' пока нет доступных промокодов.\n\nСледите за нашими обновлениями!",
+                reply_markup=back_to_main_markup
+            )
             bot.answer_callback_query(call.id, "Нет доступных промокодов в этой категории")
             return
         
-        promo_code = available_promo.code
+        # Проверяем наличие файла инструкции для отображения соответствующих кнопок
+        has_instruction_file = bool(category.instruction_file)
         
-        # Сохраняем промокод в новой структуре данных
+        # Показываем информацию о промокоде и доступных действиях
+        text = f"🎁 Категория: {category.name}\n\n"
+        text += f"🌟 Доступен промокод!\n\n"
+        
+        if has_instruction_file:
+            text += "📋 Доступные действия:"
+            text += "\n• Получить промокод"
+            text += "\n• Посмотреть файл с инструкциями"
+        else:
+            text += "Выберите действие ниже:"
+        
+        # Создаем клавиатуру с тремя кнопками
+        from bot.keyboards import InlineKeyboardMarkup, InlineKeyboardButton
+        markup = InlineKeyboardMarkup()
+        
+        # Кнопка получения промокода (всегда доступна)
+        markup.add(InlineKeyboardButton("🎯 Получить промокод", callback_data=f"claim_promocode_{cat_id}"))
+        
+        # Кнопка инструкции (если есть файл)
+        if has_instruction_file:
+            markup.add(InlineKeyboardButton("📋 Инструкция", callback_data=f"get_instruction_{cat_id}"))
+        
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+        
+        # Удаляем старое сообщение (список категорий) перед показом информации о доступном промокоде
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass  # Игнорируем ошибку, если не можем удалить
+        
+        # Отправляем новое сообщение
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text=text,
+            reply_markup=markup
+        )
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в user_select_category: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка")
+
+
+def notify_admin_promocodes_shortage(category):
+    """Отправляет уведомление главному админу о заканчивающихся промокодах"""
+    try:
+        from bot.models import OwnerSettings
+        
+        # Получаем главного админа (OwnerSettings)
+        owner_settings = OwnerSettings.objects.filter(is_active=True).first()
+        admin_user = User.objects.filter(is_super_admin=True).first()
+        
+        owner_id = None
+        if owner_settings:
+            owner_id = owner_settings.owner_telegram_id
+        elif admin_user:
+            owner_id = admin_user.telegram_id
+        
+        if not owner_id:
+            logger.error("Не найден главный админ для отправки уведомления")
+            return
+        
+        notification_text = f"⚠️ **Предупреждение о промокодах**\n\n"
+        notification_text += f"📦 **Категория:** {category.name}\n"
+        notification_text += f"📊 **Статус:** Промокоды в данной категории закончились\n\n"
+        notification_text += "🔧 **Рекомендации:**\n"
+        notification_text += "• Добавьте новые промокоды через админ-панель Telegram\n"
+        notification_text += "• Настройте инструкции в админ-панели Django\n"
+        notification_text += "• Проверьте статус других категорий\n\n"
+        notification_text += "📝 Время: " + timezone.now().strftime("%d.%m.%Y %H:%M")
+        
+        bot.send_message(
+            chat_id=owner_id,
+            text=notification_text,
+            parse_mode='Markdown'
+        )
+        logger.info(f"Отправлено уведомление главному админу о заканчивании промокодов в категории {category.name}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при отправке уведомления об окончании промокодов: {e}")
+
+
+def claim_promocode(call: CallbackQuery) -> None:
+    """Обработчик получения промокода пользователем с инструкциями"""
+    try:
+        logger.info(f"[DEBUG] claim_promocode вызвана с {call.data}")
+        
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        cat_id = int(call.data.split('_')[-1])
+        category = PromoCodeCategory.objects.get(id=cat_id, is_active=True)
+        
+        logger.info(f"[DEBUG] Получаем промокод для категории: {category.name}")
+        
+        # Получаем доступный промокод
+        available_promo = PromoCode.objects.filter(
+            is_active=True,
+            is_used=False,
+            category=category
+        ).first()
+        
+        if not available_promo:
+            # Проверяем, есть ли еще промокоды в категории или они действительно закончились
+            remaining_promos = PromoCode.objects.filter(
+                is_active=True,
+                is_used=False,
+                category=category
+            ).count()
+            
+            if remaining_promos == 0:
+                # Уведомляем главного админа
+                notify_admin_promocodes_shortage(category)
+            
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"😔 К сожалению, промокод в категории '{category.name}' больше недоступен.\n\nВозможно, он был уже израсходован другим пользователем.",
+                reply_markup=back_to_main_markup
+            )
+            bot.answer_callback_query(call.id, "Промокод больше недоступен")
+            return
+        
+        promo_code = available_promo.code
+        instruction = category.instruction
+        
+        # Помечаем промокод как использованный
+        available_promo.is_used = True
+        available_promo.save()
+        
+        # Проверяем, сколько промокодов осталось после использования
+        remaining_count = PromoCode.objects.filter(
+            is_active=True,
+            is_used=False,
+            category=category
+        ).count()
+        
+        # Если остался последний промокод, уведомляем админа
+        if remaining_count == 1:
+            notify_admin_promocodes_shortage(category)
+        
+        # Сохраняем в пользователе
+        if not user.received_promocodes_by_category:
+            user.received_promocodes_by_category = {}
         user.received_promocodes_by_category[str(cat_id)] = promo_code
         user.save()
         
-        # Удаляем использованный промокод
-        available_promo.delete()
+        # Формируем сообщение с промокодом и инструкциями
+        received_text = f"🎉 Поздравляем! Вы получили промокод в категории '{category.name}'!\n\n"
+        received_text += f"🎫 **Ваш промокод: `{promo_code}`**\n\n"
+        
+        if instruction:
+            received_text += f"📋 **Инструкция по применению:**\n{instruction}\n\n"
+        else:
+            received_text += "📋 **Инструкция:** Обратитесь в службу поддержки для получения инструкций по применению промокода.\n\n"
         
         # Показываем все полученные промокоды пользователя
-        received_text = f"🎉 Поздравляем! Вы получили подарок в категории {category.name}!\n\n"
-        received_text += f"**Ваш промокод: {promo_code}**\n\n"
-        
-        # Добавляем информацию о других полученных промокодах
         if len(user.received_promocodes_by_category) > 1:
-            received_text += "📋 Ваши полученные подарки:\n"
+            received_text += "🎁 **Ваши полученные промокоды:**\n"
             for cat_id_str, promocode in user.received_promocodes_by_category.items():
                 try:
                     cat = PromoCodeCategory.objects.get(id=int(cat_id_str))
-                    received_text += f"• **{cat.name}**: {promocode}\n"
+                    star = "⭐️" if str(cat_id) == str(cat_id_str) else "•"
+                    received_text += f"{star} **{cat.name}**: `{promocode}`\n"
                 except:
-                    received_text += f"• Промокод: {promocode}\n"
+                    star = "⭐️" if str(cat_id) == str(cat_id_str) else "•"
+                    received_text += f"{star} Промокод: `{promocode}`\n"
         
-        received_text += "\n💡 Вы можете получить по одному подарку в каждой категории!"
+        received_text += "\n💡 **Помните:** Вы можете получить по одному промокоду в каждой категории!"
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -686,7 +857,95 @@ def user_select_category(call: CallbackQuery) -> None:
             parse_mode='Markdown',
             reply_markup=back_to_main_markup
         )
-        bot.answer_callback_query(call.id, "Подарок получен!")
+        bot.answer_callback_query(call.id, "🎁 Промокод получен!")
+        
     except Exception as e:
-        logger.error(f"Ошибка в user_select_category: {e}")
+        logger.error(f"Ошибка в claim_promocode: {e}")
         bot.answer_callback_query(call.id, "Произошла ошибка")
+
+
+def get_category_instruction(call: CallbackQuery) -> None:
+    """Отправляет инструкцию пользователю - файл или текст"""
+    try:
+        logger.info(f"[DEBUG] get_category_instruction вызвана с {call.data}")
+        
+        # Удаляем старое сообщение перед показом инструкции
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass  # Игнорируем ошибку, если не можем удалить
+        
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        cat_id = int(call.data.split('_')[-1])
+        category = PromoCodeCategory.objects.get(id=cat_id, is_active=True)
+        
+        logger.info(f"[DEBUG] Категория найдена: {category.name}")
+        
+        has_file = bool(category.instruction_file)
+        
+        logger.info(f"[DEBUG] has_file: {has_file}")
+        
+        instruction_sent = False
+        
+        # Если есть файл инструкции, отправляем его
+        if has_file:
+            try:
+                logger.info(f"[DEBUG] Пытаемся отправить файл инструкции: {category.instruction_file.path}")
+                
+                # Отправляем файл и добавляем кнопку "Назад" под ним
+                with open(category.instruction_file.path, 'rb') as file:
+                    message_with_document = bot.send_document(
+                        chat_id=call.message.chat.id,
+                        document=file,
+                        caption=f"📋 Инструкция для категории '{category.name}'"
+                    )
+                
+                # Добавляем кнопку "Назад в главное меню"
+                from bot.keyboards import InlineKeyboardMarkup, InlineKeyboardButton
+                markup = InlineKeyboardMarkup()
+                markup.add(InlineKeyboardButton("⬅️ Назад в главное меню", callback_data="back_to_main"))
+                
+                bot.edit_message_reply_markup(
+                    chat_id=call.message.chat.id,
+                    message_id=message_with_document.message_id,
+                    reply_markup=markup
+                )
+                
+                
+                instruction_sent = True
+                bot.answer_callback_query(call.id, "📋 Файл инструкции отправлен!")
+                logger.info(f"[DEBUG] Файл инструкции отправлен успешно")
+                
+            except Exception as e:
+                logger.error(f"[ERROR] Ошибка отправки файла инструкции: {e}")
+                # Если файл не удалось отправить, показываем сообщение об ошибке
+                # Добавляем кнопку "Назад в главное меню"
+                from bot.keyboards import InlineKeyboardMarkup, InlineKeyboardButton
+                markup = InlineKeyboardMarkup()
+                markup.add(InlineKeyboardButton("⬅️ Назад в главное меню", callback_data="back_to_main"))
+                
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text="📋 Инструкция для данной категории временно недоступна.",
+                    reply_markup=markup
+                )
+                bot.answer_callback_query(call.id, "❌ Инструкция недоступна")
+                instruction_sent = True
+        
+        # Если нет файла инструкции
+        if not instruction_sent:
+            # Добавляем кнопку "Назад в главное меню"
+            from bot.keyboards import InlineKeyboardMarkup, InlineKeyboardButton
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("⬅️ Назад в главное меню", callback_data="back_to_main"))
+            
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text="📋 Инструкция для данной категории еще не добавлена администратором.",
+                reply_markup=markup
+            )
+            bot.answer_callback_query(call.id, "❌ Инструкция не найдена")
+            
+    except Exception as e:
+        logger.error(f"[ERROR] Ошибка в get_category_instruction: {e}")
+        bot.answer_callback_query(call.id, "❌ Произошла ошибка")

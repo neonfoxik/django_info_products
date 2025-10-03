@@ -14,6 +14,6 @@ from bot import bot
 from bot.handlers import *  # Импортируем обработчики
 
 if __name__ == '__main__':
-    print("Запуск бота в режиме поллинга...")
+    print("Удаление webhook для использования поллинга...")
     bot.remove_webhook()
-    bot.infinity_polling() 
+    print("Webhook удален. Бот готов к работе с webhook.") 

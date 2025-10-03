@@ -1,3 +1,5 @@
+# Функция handle_callback удалена - все callback'и теперь обрабатываются через views.py
+
 from .common import (
     start, 
     menu_call, 
@@ -48,135 +50,8 @@ from .support import (
 )
 from .promocodes import (
     promocode_menu, promocode_add, promocode_list, promocode_detail,
-    promocode_toggle, promocode_delete, get_user_promocode
+    promocode_toggle, promocode_delete, get_user_promocode, 
+    user_select_category, claim_promocode, get_category_instruction,
+    promocode_select_category, handle_promocode_text, handle_promocode_document, 
+    promocode_select_category_file, promocode_choose_actions, promocode_back_to_category, promocode_state
 )
-
-from telebot.types import CallbackQuery
-from bot import bot, logger
-
-def handle_callback(call: CallbackQuery) -> None:
-    """Обработчик callback-запросов"""
-    try:
-        print(f"[DEBUG] Получен callback: {call.data} от пользователя {call.message.chat.id}")
-        logger.info(f"[DEBUG] Получен callback: {call.data} от пользователя {call.message.chat.id}")
-        
-        if call.data == "menu":
-            menu_call(call)
-        elif call.data == "my_warranties":
-            show_my_warranties(call)
-        elif call.data == "warranty_main_menu":
-            show_warranty_main_menu(call)
-        elif call.data == "warranty_conditions":
-            show_warranty_conditions(call)
-        elif call.data == "warranty_activation_menu":
-            show_warranty_activation_menu(call)
-        elif call.data == "waranty_goods_fast":
-            waranty_goods_fast(call)
-        elif call.data == "warranty_cases":
-            show_warranty_cases(call)
-        elif call.data.startswith("warranty_case_ozon"):
-            warranty_case_ozon(call)
-        elif call.data.startswith("warranty_case_wb"):
-            warranty_case_wildberries(call)
-        elif call.data.startswith("warranty_case_"):
-            handle_warranty_case(call)
-        elif call.data.startswith("atwarranty_case_"):
-            handle_warranty_case(call)
-        elif call.data.startswith("request_contact_"):
-            request_contact_for_warranty(call)
-        elif call.data.startswith("instruction_pdf_"):
-            send_instruction_pdf(call)
-        elif call.data.startswith("product_instruction_pdf_"):
-            send_product_instruction_pdf(call)
-        elif call.data.startswith("instructions_") or call.data.startswith("faq_") or (call.data.startswith("warranty_") and not call.data.startswith("warranty_case")):
-            show_product_info(call)
-        elif call.data.startswith("category_"):
-            show_category_products(call)
-        elif call.data.startswith("product_"):
-            show_product_menu(call)
-        elif call.data.startswith("activate_warranty_"):
-            activate_warranty(call)
-        elif call.data.startswith("cancel_warranty_"):
-            cancel_warranty_activation(call)
-        elif call.data.startswith("confirm_review_"):
-            confirm_review(call)
-        elif call.data.startswith("cancel_review_"):
-            cancel_review(call)
-        elif call.data == "back_to_main":
-            back_to_main(call)
-        elif call.data == "back_to_categories":
-            back_to_categories(call)
-        elif call.data == "admin_excel":
-            send_excel_to_admin(call)
-        elif call.data == "catalog":
-            show_categories(call.message.chat.id, call.message.message_id)
-        elif call.data == "help_main":
-            show_support_menu(call)
-        elif call.data == "support_ozon":
-            start_support_ozon(call)
-        elif call.data == "support_wildberries":
-            start_support_wildberries(call)
-        elif call.data == "close_ticket":
-            close_support_ticket(call)
-        elif call.data.startswith("accept_ticket_"):
-            accept_support_ticket(call)
-        elif call.data.startswith("finish_ticket_"):
-            finish_ticket_processing(call)
-        elif call.data.startswith("view_ticket_"):
-            view_ticket_details(call)
-        elif call.data == "already_assigned":
-            already_assigned_callback(call)
-        elif call.data == "help_ozon":
-            start_support_ozon(call)
-        elif call.data == "help_wildberries":
-            start_support_wildberries(call)
-        elif call.data == "admin_open_tickets":
-            admin_list_open_tickets(call)
-        elif call.data == "admin_broadcast":
-            admin_start_broadcast(call)
-        elif call.data in ("broadcast_confirm", "broadcast_cancel"):
-            admin_broadcast_confirm(call)
-        elif call.data == "promocode_menu":
-            promocode_menu(call)
-        elif call.data == "promocode_add":
-            promocode_add(call)
-        elif call.data == "promocode_list":
-            promocode_list(call)
-        elif call.data.startswith("promocode_detail_"):
-            promocode_detail(call)
-        elif call.data.startswith("promocode_toggle_"):
-            promocode_toggle(call)
-        elif call.data.startswith("promocode_delete_"):
-            promocode_delete(call)
-        elif call.data == "get_promocode":
-            get_user_promocode(call)
-        elif call.data == "admin_panel":
-            show_admin_panel(call)
-        elif call.data == "admin_back_to_tickets":
-            admin_back_to_tickets(call)
-        elif call.data == "admin_my_tickets":
-            admin_list_my_tickets(call)
-        elif call.data.startswith("get_ticket_files_"):
-            from .support import send_ticket_files_to_admin
-            send_ticket_files_to_admin(call)
-        elif call.data.startswith("get_all_ticket_files_"):
-            from .support import send_all_ticket_files_to_admin
-            send_all_ticket_files_to_admin(call)
-        elif call.data == "category_header":
-            # Заголовки категорий - просто игнорируем нажатие
-            bot.answer_callback_query(
-                callback_query_id=call.id,
-                text=""
-            )
-        else:
-            # Если callback не обработан, отправляем сообщение об ошибке
-            bot.answer_callback_query(
-                callback_query_id=call.id,
-                text="Неизвестная команда"
-            )
-    except Exception as e:
-        logger.error(f"Ошибка в handle_callback: {e}")
-        bot.answer_callback_query(
-            callback_query_id=call.id,
-            text="Произошла ошибка. Попробуйте позже."
-        )

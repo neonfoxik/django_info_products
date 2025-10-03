@@ -173,11 +173,50 @@ class BroadcastMessageAdmin(admin.ModelAdmin):
 admin.site.register(BroadcastMessage, BroadcastMessageAdmin)
 
 
+class PromoCodeInline(admin.TabularInline):
+    model = PromoCode
+    extra = 1
+    fields = ('code', 'is_active', 'is_used')
+
+
+class PromoCodeCategoryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'instruction_status', 'is_active', 'promocodes_count', 'created_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('name',)
+    readonly_fields = ('created_at',)
+    
+    def instruction_status(self, obj):
+        """Показывает статус инструкции: только файл"""
+        has_file = bool(obj.instruction_file)
+        
+        if has_file:
+            return "Файл загружен"
+        else:
+            return "Нет файла"
+    instruction_status.short_description = 'Инструкция'
+    
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('name', 'is_active')
+        }),
+        ('Инструкции по применению промокодов', {
+            'fields': ('instruction_file',),
+            'description': 'Загрузите файл с инструкциями по применению промокодов'
+        }),
+        ('Системная информация', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+    inlines = [PromoCodeInline]
+
+
 class PromoCodeAdmin(admin.ModelAdmin):
     list_display = ('code', 'category', 'is_used', 'is_active', 'created_at', 'created_by')
     list_filter = ('category', 'is_active', 'is_used', 'created_at')
     search_fields = ('code',)
     readonly_fields = ('created_at',)
+    
     fieldsets = (
         ('Основная информация', {
             'fields': ('code', 'category', 'is_active', 'is_used')
@@ -190,4 +229,4 @@ class PromoCodeAdmin(admin.ModelAdmin):
 
 
 admin.site.register(PromoCode, PromoCodeAdmin)
-admin.site.register(PromoCodeCategory)
+admin.site.register(PromoCodeCategory, PromoCodeCategoryAdmin)

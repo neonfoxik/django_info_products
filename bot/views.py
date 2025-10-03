@@ -283,6 +283,11 @@ user_select_category_handler = bot.callback_query_handler(lambda c: c.data.start
 promocode_select_category_file_handler = bot.callback_query_handler(lambda c: c.data.startswith("promocode_cat_file_"))(promocode_select_category_file)
 promocode_back_to_category_handler = bot.callback_query_handler(lambda c: c.data.startswith("promocode_back_to_category_"))(promocode_back_to_category)
 
+# Новые обработчики для пользовательских промокодов
+from bot.handlers.promocodes import claim_promocode, get_category_instruction
+claim_promocode_handler = bot.callback_query_handler(lambda c: c.data.startswith("claim_promocode_"))(claim_promocode)
+get_instruction_handler = bot.callback_query_handler(lambda c: c.data.startswith("get_instruction_"))(get_category_instruction)
+
 # Старые обработчики поддержки (для обратной совместимости)
 support_ozon_old_handler = bot.callback_query_handler(lambda c: c.data == "help_ozon")(support_ozon)
 support_wildberries_old_handler = bot.callback_query_handler(lambda c: c.data == "help_wildberries")(support_wildberries)

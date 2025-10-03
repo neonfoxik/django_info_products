@@ -548,6 +548,13 @@ class PromoCodeCategory(models.Model):
         unique=True,
         verbose_name='Название категории'
     )
+    instruction_file = models.FileField(
+        upload_to='instructions/promocodes/',
+        verbose_name='Файл инструкции',
+        blank=True,
+        null=True,
+        help_text='PDF или другой файл с инструкциями по применению промокодов'
+    )
     is_active = models.BooleanField(
         default=True,
         verbose_name='Активна'
@@ -559,6 +566,11 @@ class PromoCodeCategory(models.Model):
     
     def __str__(self):
         return self.name
+    
+    def promocodes_count(self):
+        """Количество активных неиспользованных промокодов в категории"""
+        return self.promocodes.filter(is_active=True, is_used=False).count()
+    promocodes_count.short_description = 'Кол-во промокодов'
     
     class Meta:
         verbose_name = 'Категория промокодов'
