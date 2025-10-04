@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction, SupportTicket, SupportMessage, OwnerSettings, BroadcastMessage, PromoCode, PromoCodeCategory
 from django import forms
+from django.db import models
 
 class UserAdmin(admin.ModelAdmin):
     list_display = ('telegram_id', 'user_name', 'phone_number', 'is_admin', 'is_super_admin', 'is_ozon_admin', 'is_wb_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
@@ -185,6 +186,22 @@ class PromoCodeCategoryAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     readonly_fields = ('created_at',)
     
+    # Настройки для лучшего отображения многострочного текста
+    formfield_overrides = {
+        models.TextField: {'widget': admin.widgets.AdminTextareaWidget(attrs={'rows': 15, 'cols': 100})},
+    }
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        # Специальная настройка для поля message_text
+        if 'message_text' in form.base_fields:
+            form.base_fields['message_text'].widget = admin.widgets.AdminTextareaWidget(attrs={
+                'rows': 15, 
+                'cols': 100,
+                'style': 'font-family: monospace;'
+            })
+        return form
+    
     def instruction_status(self, obj):
         """Показывает статус инструкции: только файл"""
         has_file = bool(obj.instruction_file)
@@ -201,7 +218,7 @@ class PromoCodeCategoryAdmin(admin.ModelAdmin):
         }),
         ('Сообщение при выборе категории', {
             'fields': ('message_text',),
-            'description': 'Текст, который отображается пользователю при выборе этой категории промокодов'
+            'description': 'Текст, который отображается пользователю при выборе этой категории промокодов. Поддерживает многострочный текст с эмодзи.'
         }),
         ('Инструкции по применению промокодов', {
             'fields': ('instruction_file',),
