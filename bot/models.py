@@ -548,6 +548,12 @@ class PromoCodeCategory(models.Model):
         unique=True,
         verbose_name='Название категории'
     )
+    message_text = models.TextField(
+        verbose_name='Текст сообщения при выборе категории',
+        blank=True,
+        null=True,
+        help_text='Текст, который отображается пользователю при выборе этой категории промокодов'
+    )
     instruction_file = models.FileField(
         upload_to='instructions/promocodes/',
         verbose_name='Файл инструкции',
