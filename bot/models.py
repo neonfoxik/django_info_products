@@ -552,7 +552,7 @@ class PromoCodeCategory(models.Model):
         verbose_name='Текст сообщения при выборе категории',
         blank=True,
         null=True,
-        help_text='Текст, который отображается пользователю при выборе этой категории промокодов'
+        help_text='Текст, который отображается пользователю при выборе этой категории промокодов. Поддерживает многострочный текст с эмодзи.'
     )
     instruction_file = models.FileField(
         upload_to='instructions/promocodes/',
@@ -577,6 +577,13 @@ class PromoCodeCategory(models.Model):
         """Количество активных неиспользованных промокодов в категории"""
         return self.promocodes.filter(is_active=True, is_used=False).count()
     promocodes_count.short_description = 'Кол-во промокодов'
+    
+    def save(self, *args, **kwargs):
+        """Переопределяем save для правильного сохранения многострочного текста"""
+        if self.message_text:
+            # Убеждаемся, что переносы строк сохраняются
+            self.message_text = self.message_text.replace('\r\n', '\n').replace('\r', '\n')
+        super().save(*args, **kwargs)
     
     class Meta:
         verbose_name = 'Категория промокодов'

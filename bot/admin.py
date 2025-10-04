@@ -3,6 +3,21 @@ from .models import User, goods_category, goods, ProductImage, Support, FAQ, Ins
 from django import forms
 from django.db import models
 
+
+class PromoCodeCategoryForm(forms.ModelForm):
+    """Специальная форма для правильного отображения многострочного текста"""
+    class Meta:
+        model = PromoCodeCategory
+        fields = '__all__'
+        widgets = {
+            'message_text': forms.Textarea(attrs={
+                'rows': 15,
+                'cols': 100,
+                'style': 'width: 100%; font-family: monospace;',
+                'class': 'vLargeTextField'
+            }),
+        }
+
 class UserAdmin(admin.ModelAdmin):
     list_display = ('telegram_id', 'user_name', 'phone_number', 'is_admin', 'is_super_admin', 'is_ozon_admin', 'is_wb_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
     search_fields = ('user_name', 'phone_number', 'telegram_id')
@@ -181,6 +196,7 @@ class PromoCodeInline(admin.TabularInline):
 
 
 class PromoCodeCategoryAdmin(admin.ModelAdmin):
+    form = PromoCodeCategoryForm
     list_display = ('name', 'instruction_status', 'is_active', 'promocodes_count', 'created_at')
     list_filter = ('is_active', 'created_at')
     search_fields = ('name',)
@@ -188,17 +204,20 @@ class PromoCodeCategoryAdmin(admin.ModelAdmin):
     
     # Настройки для лучшего отображения многострочного текста
     formfield_overrides = {
-        models.TextField: {'widget': admin.widgets.AdminTextareaWidget(attrs={'rows': 15, 'cols': 100})},
+        models.TextField: {'widget': forms.Textarea(attrs={'rows': 15, 'cols': 100, 'style': 'width: 100%;'})},
     }
     
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         # Специальная настройка для поля message_text
         if 'message_text' in form.base_fields:
-            form.base_fields['message_text'].widget = admin.widgets.AdminTextareaWidget(attrs={
+            # Используем более универсальный подход
+            from django.forms import Textarea
+            form.base_fields['message_text'].widget = Textarea(attrs={
                 'rows': 15, 
                 'cols': 100,
-                'style': 'font-family: monospace;'
+                'style': 'font-family: monospace; width: 100%;',
+                'class': 'vLargeTextField'
             })
         return form
     
