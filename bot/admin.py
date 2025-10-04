@@ -17,6 +17,16 @@ class PromoCodeCategoryForm(forms.ModelForm):
                 'class': 'vLargeTextField'
             }),
         }
+    
+    def clean_message_text(self):
+        """Очистка и нормализация текста с эмодзи"""
+        message_text = self.cleaned_data.get('message_text')
+        if message_text:
+            # Убеждаемся, что текст правильно кодируется
+            message_text = message_text.encode('utf-8').decode('utf-8')
+            # Нормализуем переносы строк
+            message_text = message_text.replace('\r\n', '\n').replace('\r', '\n')
+        return message_text
 
 class UserAdmin(admin.ModelAdmin):
     list_display = ('telegram_id', 'user_name', 'phone_number', 'is_admin', 'is_super_admin', 'is_ozon_admin', 'is_wb_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')

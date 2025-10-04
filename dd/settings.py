@@ -91,6 +91,10 @@ else:
             "USER": os.getenv("NAME_DB"),
             "PASSWORD": os.getenv("PASS_DB"),
             "HOST": "127.0.0.1",
+            "OPTIONS": {
+                "charset": "utf8mb4",
+                "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
         }
     }
 
@@ -122,6 +126,10 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+# Настройки для правильной работы с UTF-8 и эмодзи
+DEFAULT_CHARSET = 'utf-8'
+FILE_CHARSET = 'utf-8'
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.1/howto/static-files/

@@ -579,10 +579,13 @@ class PromoCodeCategory(models.Model):
     promocodes_count.short_description = 'Кол-во промокодов'
     
     def save(self, *args, **kwargs):
-        """Переопределяем save для правильного сохранения многострочного текста"""
+        """Переопределяем save для правильного сохранения многострочного текста с эмодзи"""
         if self.message_text:
             # Убеждаемся, что переносы строк сохраняются
             self.message_text = self.message_text.replace('\r\n', '\n').replace('\r', '\n')
+            # Убеждаемся, что текст правильно кодируется в UTF-8
+            if isinstance(self.message_text, str):
+                self.message_text = self.message_text.encode('utf-8').decode('utf-8')
         super().save(*args, **kwargs)
     
     class Meta:
