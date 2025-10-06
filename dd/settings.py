@@ -146,5 +146,8 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Увеличиваем максимальное количество полей в форме
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+
 # Добавляем секретный ключ для запуска cron-задач
 CRON_SECRET_KEY = os.environ.get('CRON_SECRET_KEY', get_random_secret_key())

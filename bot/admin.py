@@ -19,8 +19,9 @@ class PromoCodeCategoryForm(forms.ModelForm):
             'promocode_template': forms.Textarea(attrs={
                 'rows': 15,
                 'cols': 100,
-                'style': 'width: 100%; font-family: monospace;',
-                'class': 'vLargeTextField'
+                'style': 'width: 100%; font-family: monospace; white-space: pre-wrap; word-wrap: break-word;',
+                'class': 'vLargeTextField',
+                'placeholder': '🎉 Поздравляем!\n\nВаш промокод: {promocode}\n\nИспользуйте его при оформлении заказа.'
             }),
         }
     
