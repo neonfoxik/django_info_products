@@ -734,13 +734,11 @@ def claim_promocode(call: CallbackQuery) -> None:
             # Пользователь уже получил промокод из этой категории
             received_promo = user.received_promocodes_by_category[str(cat_id)]
             
-            # Используем текст из поля message_text категории, если он есть, иначе используем стандартный текст
-            if category.message_text:
-                text = category.message_text
-                # Добавляем информацию о промокоде к тексту из админки
-                text += f"\n\n🎫 **Ваш промокод: `{received_promo}`**"
+            # Используем шаблон текста с промокодом, если он есть
+            if category.promocode_template:
+                text = category.promocode_template.replace('{promocode}', received_promo)
             else:
-                # Стандартный текст, если message_text не заполнен
+                # Стандартный текст, если шаблон не задан
                 text = f"🎁 Категория: {category.name}\n\n"
                 text += f"🎫 **Ваш промокод: `{received_promo}`**\n\n"
                 text += "📋 Дополнительные действия:"
@@ -821,8 +819,11 @@ def claim_promocode(call: CallbackQuery) -> None:
         user.save()
         
         # Формируем сообщение с промокодом
-        received_text = f"🎉 Поздравляем! Вы получили промокод в категории '{category.name}'!\n\n"
-        received_text += f"🎫 **Ваш промокод: `{promo_code}`**\n\n"
+        if category.promocode_template:
+            received_text = category.promocode_template.replace('{promocode}', promo_code)
+        else:
+            received_text = f"🎉 Поздравляем! Вы получили промокод в категории '{category.name}'!\n\n"
+            received_text += f"🎫 **Ваш промокод: `{promo_code}`**\n\n"
         
         # Проверяем наличие файла инструкции
         if category.instruction_file:

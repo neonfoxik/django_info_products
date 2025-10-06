@@ -554,6 +554,12 @@ class PromoCodeCategory(models.Model):
         null=True,
         help_text='Текст, который отображается пользователю при выборе этой категории промокодов. Поддерживает многострочный текст с эмодзи.'
     )
+    promocode_template = models.TextField(
+        verbose_name='Шаблон текста с промокодом',
+        blank=True,
+        null=True,
+        help_text='Шаблон текста, который будет показан пользователю вместе с промокодом. Используйте {promocode} для вставки промокода. Например: "Ваш промокод: {promocode}"'
+    )
     instruction_file = models.FileField(
         upload_to='instructions/promocodes/',
         verbose_name='Файл инструкции',

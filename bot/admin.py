@@ -16,6 +16,12 @@ class PromoCodeCategoryForm(forms.ModelForm):
                 'style': 'width: 100%; font-family: monospace;',
                 'class': 'vLargeTextField'
             }),
+            'promocode_template': forms.Textarea(attrs={
+                'rows': 15,
+                'cols': 100,
+                'style': 'width: 100%; font-family: monospace;',
+                'class': 'vLargeTextField'
+            }),
         }
     
     def clean_message_text(self):
@@ -27,6 +33,20 @@ class PromoCodeCategoryForm(forms.ModelForm):
             # Нормализуем переносы строк
             message_text = message_text.replace('\r\n', '\n').replace('\r', '\n')
         return message_text
+
+    def clean_promocode_template(self):
+        """Очистка и нормализация шаблона текста с промокодом"""
+        template = self.cleaned_data.get('promocode_template')
+        if template:
+            # Убеждаемся, что текст правильно кодируется
+            template = template.encode('utf-8').decode('utf-8')
+            # Нормализуем переносы строк
+            template = template.replace('\r\n', '\n').replace('\r', '\n')
+            # Проверяем наличие маркера {promocode}
+            if '{promocode}' not in template:
+                from django.core.exceptions import ValidationError
+                raise ValidationError('Шаблон должен содержать маркер {promocode} для вставки промокода')
+        return template
 
 class UserAdmin(admin.ModelAdmin):
     list_display = ('telegram_id', 'user_name', 'phone_number', 'is_admin', 'is_super_admin', 'is_ozon_admin', 'is_wb_admin', 'is_ai', 'screenshots_count', 'last_screenshot_date')
@@ -248,6 +268,10 @@ class PromoCodeCategoryAdmin(admin.ModelAdmin):
         ('Сообщение при выборе категории', {
             'fields': ('message_text',),
             'description': 'Текст, который отображается пользователю при выборе этой категории промокодов. Поддерживает многострочный текст с эмодзи.'
+        }),
+        ('Шаблон текста с промокодом', {
+            'fields': ('promocode_template',),
+            'description': 'Шаблон текста, который будет показан пользователю вместе с промокодом. Используйте {promocode} для вставки промокода. Например: "Ваш промокод: {promocode}"'
         }),
         ('Инструкции по применению промокодов', {
             'fields': ('instruction_file',),
