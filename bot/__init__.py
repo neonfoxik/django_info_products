@@ -11,9 +11,16 @@ bot = telebot.TeleBot(
     skip_pending=True,
 )
 
-bot.set_my_commands(commands)
+try:
+    bot.set_my_commands(commands)
+except Exception as e:
+    logging.warning(f"Failed to set bot commands at startup: {e}")
 
-logging.info(f'@{bot.get_me().username} started')
+try:
+    me = bot.get_me()
+    logging.info(f'@{me.username} started')
+except Exception as e:
+    logging.warning(f"Failed to fetch bot info at startup: {e}")
 
 logger = telebot.logger
 logger.setLevel(logging.INFO)

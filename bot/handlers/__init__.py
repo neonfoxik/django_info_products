@@ -55,3 +55,7 @@ from .promocodes import (
     promocode_select_category, handle_promocode_text, handle_promocode_document, 
     promocode_select_category_file, promocode_choose_actions, promocode_back_to_category, promocode_state
 )
+from .warranty import (
+    warranty_start, warranty_select_category, warranty_select_product,
+    warranty_select_issue, warranty_helped, warranty_not_helped, warranty_other
+)

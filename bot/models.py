@@ -410,6 +410,14 @@ class SupportTicket(models.Model):
         default=0,
         verbose_name='Количество сообщений'
     )
+    # Ключ: telegram_id админа (str), значение: список message_id (int) сообщений бота в чате этого админа по данному тикету
+    admin_messages = models.JSONField(
+        null=True,
+        blank=True,
+        default=dict,
+        verbose_name='ID сообщений бота у админов по тикету',
+        help_text='Словарь {admin_telegram_id: [message_id, ...]}'
+    )
 
     def __str__(self):
         return f"Обращение #{self.id} от {self.user.user_name} ({self.get_platform_display()})"
@@ -658,3 +666,180 @@ class PromoCode(models.Model):
         verbose_name = 'Промокод'
         verbose_name_plural = 'Промокоды'
         ordering = ['-created_at']
+
+
+class WarrantyIssue(models.Model):
+    """Модель для хранения типичных поломок/проблем для товаров"""
+    product = models.ForeignKey(
+        'goods',
+        on_delete=models.CASCADE,
+        related_name='warranty_issues',
+        verbose_name='Товар'
+    )
+    title = models.CharField(
+        max_length=255,
+        verbose_name='Название проблемы',
+        help_text='Например: "Не включается", "Нет звука", "Проблемы с WiFi"'
+    )
+    solution_template = models.TextField(
+        verbose_name='Текст решения',
+        blank=True,
+        null=True,
+        help_text='Текст с инструкцией по решению проблемы. Можно оставить пустым, если прикрепляете только файл.'
+    )
+    solution_file = models.FileField(
+        upload_to='warranty_solutions/',
+        verbose_name='Файл с решением',
+        blank=True,
+        null=True,
+        help_text='PDF, изображение или другой файл с инструкцией. Можно загрузить вместе с текстом или отдельно.'
+    )
+    order = models.PositiveIntegerField(
+        verbose_name='Порядок отображения',
+        default=0,
+        help_text='Чем меньше число, тем выше в списке.'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Активна'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
+
+    def __str__(self):
+        return f"{self.product.name} - {self.title}"
+
+    class Meta:
+        verbose_name = 'Типичная проблема'
+        verbose_name_plural = 'Типичные проблемы'
+        ordering = ['product', 'order', 'title']
+
+
+class WarrantyRequest(models.Model):
+    """Модель для хранения обращений по гарантии"""
+    STATUS_CHOICES = [
+        ('selecting_product', 'Выбор товара'),
+        ('selecting_issue', 'Выбор проблемы'),
+        ('got_solution', 'Получил решение'),
+        ('needs_manager', 'Нужен менеджер'),
+        ('closed', 'Закрыто'),
+    ]
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='warranty_requests',
+        verbose_name='Пользователь'
+    )
+    product = models.ForeignKey(
+        'goods',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='Товар'
+    )
+    issue = models.ForeignKey(
+        WarrantyIssue,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='Выбранная проблема'
+    )
+    custom_issue_description = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='Описание проблемы (если выбрано "Другое")'
+    )
+    status = models.CharField(
+        max_length=30,
+        choices=STATUS_CHOICES,
+        default='selecting_product',
+        verbose_name='Статус'
+    )
+    solution_helped = models.BooleanField(
+        null=True,
+        blank=True,
+        verbose_name='Решение помогло?'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
+
+    def __str__(self):
+        return f"Обращение #{self.id} от {self.user.user_name}"
+
+    class Meta:
+        verbose_name = 'Обращение по гарантии'
+        verbose_name_plural = 'Обращения по гарантии'
+        ordering = ['-created_at']
+
+
+class WarrantyQuestion(models.Model):
+    """Глобальные вопросы, задаваемые пользователю при оформлении гарантийного случая"""
+    text = models.TextField(
+        verbose_name='Текст вопроса'
+    )
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Порядок'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Активен'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
+
+    def __str__(self):
+        return f"Q{self.id}: {self.text[:50]}"
+
+    class Meta:
+        verbose_name = 'Вопрос гарантии'
+        verbose_name_plural = 'Вопросы гарантии'
+        ordering = ['order', 'id']
+
+
+class WarrantyAnswer(models.Model):
+    """Ответ пользователя на вопрос в рамках конкретного WarrantyRequest"""
+    request = models.ForeignKey(
+        WarrantyRequest,
+        on_delete=models.CASCADE,
+        related_name='answers',
+        verbose_name='Гарантийное обращение'
+    )
+    question = models.ForeignKey(
+        WarrantyQuestion,
+        on_delete=models.CASCADE,
+        verbose_name='Вопрос'
+    )
+    answer_text = models.TextField(
+        verbose_name='Ответ пользователя'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+
+    def __str__(self):
+        return f"Заявка #{self.request_id} — Q{self.question_id}"
+
+    class Meta:
+        verbose_name = 'Ответ на вопрос гарантии'
+        verbose_name_plural = 'Ответы на вопросы гарантии'

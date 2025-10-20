@@ -91,7 +91,7 @@ def get_warranty_markup_with_extended(product_id, has_extended_warranty=False):
     
     # Добавляем дополнительные кнопки
     markup.add(InlineKeyboardButton("📋 Условия гарантии", callback_data="warranty_conditions"))
-    markup.add(InlineKeyboardButton("🛠️ Обратиться по гарантии", callback_data="warranty_cases"))
+    markup.add(InlineKeyboardButton("🛠️ Обратиться по гарантии", callback_data="warranty_start"))
     markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
     return markup
 
@@ -117,7 +117,7 @@ def get_warranty_main_menu_markup(has_active_warranties=False):
     markup.add(InlineKeyboardButton("✅ Активировать расширенную гарантию", callback_data="waranty_goods_fast"))
     if has_active_warranties:
         markup.add(InlineKeyboardButton("🛡️ Мои гарантии", callback_data="my_warranties"))
-    markup.add(InlineKeyboardButton("🛠️ Обратиться по гарантии", callback_data="warranty_cases"))
+    markup.add(InlineKeyboardButton("🛠️ Обратиться по гарантии", callback_data="warranty_start"))
     markup.add(InlineKeyboardButton("⬅️ Главное меню", callback_data="back_to_main"))
     return markup
 

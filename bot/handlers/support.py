@@ -1,7 +1,7 @@
 from telebot.types import Message, CallbackQuery
 from django.utils import timezone
 from bot import bot
-from bot.models import User, SupportTicket, SupportMessage, OwnerSettings
+from bot.models import User, SupportTicket, SupportMessage, OwnerSettings, WarrantyRequest, WarrantyAnswer
 from bot.texts import (
     SUPPORT_WELCOME_TEXT, SUPPORT_OZON_START_TEXT, SUPPORT_WILDBERRIES_START_TEXT,
     SUPPORT_MESSAGE_RECEIVED_TEXT, SUPPORT_TICKET_CLOSED_TEXT,
@@ -25,6 +25,41 @@ support_state = {}
 # Словарь для отслеживания состояния админов, отвечающих на обращения
 admin_response_state = {}
 broadcast_state = {}
+# Контекст для переноса деталей из гарантийного обращения в новое обращение поддержки
+warranty_to_support_context = {}
+
+# ===== Helpers for tracking and cleanup admin chat messages =====
+def _track_admin_message(ticket: SupportTicket, admin_chat_id: int, message_id: int) -> None:
+    try:
+        key = str(admin_chat_id)
+        ticket.admin_messages = ticket.admin_messages or {}
+        ticket.admin_messages.setdefault(key, [])
+        ticket.admin_messages[key].append(int(message_id))
+        ticket.save(update_fields=['admin_messages'])
+    except Exception:
+        # Не мешаем основному потоку при ошибке учета
+        pass
+
+
+def _cleanup_admin_messages(ticket: SupportTicket) -> None:
+    try:
+        mapping = ticket.admin_messages or {}
+        for admin_chat_id_str, ids in mapping.items():
+            try:
+                admin_chat_id = int(admin_chat_id_str)
+            except Exception:
+                continue
+            for mid in ids or []:
+                try:
+                    bot.delete_message(admin_chat_id, int(mid))
+                except Exception:
+                    # Сообщение могло быть уже удалено или недоступно — игнорируем
+                    continue
+        # Сбрасываем учет после очистки
+        ticket.admin_messages = {}
+        ticket.save(update_fields=['admin_messages'])
+    except Exception:
+        pass
 
 
 # ===== Helpers for admin roles and permissions =====
@@ -159,9 +194,16 @@ def user_close_ticket(call: CallbackQuery) -> None:
         # Уведомить назначенного админа
         if ticket.assigned_admin:
             try:
-                bot.send_message(ticket.assigned_admin.telegram_id, f"ℹ️ Пользователь закрыл обращение #{ticket.id}")
+                sent = bot.send_message(ticket.assigned_admin.telegram_id, f"ℹ️ Пользователь закрыл обращение #{ticket.id}")
+                _track_admin_message(ticket, ticket.assigned_admin.telegram_id, sent.message_id)
             except:
                 pass
+
+        # Чистим сообщения в чатах администраторов по этому тикету
+        try:
+            _cleanup_admin_messages(ticket)
+        except Exception:
+            pass
 
         bot.answer_callback_query(call.id)
     except Exception as e:
@@ -329,14 +371,14 @@ def start_support_ozon(call: CallbackQuery) -> None:
                 'platform': existing_ticket.platform
             }
 
-            # Не уведомляем админов здесь; уведомим при следующем сообщении пользователя
-
+            # Сообщаем, что новое обращение создать нельзя, пока активное не закрыто
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text=(
-                    f"✍️ Продолжайте переписку по вашему обращению #{existing_ticket.id}.\n"
-                    "Напишите ваше сообщение."
+                    f"ℹ️ У вас уже есть активное обращение #{existing_ticket.id}.\n\n"
+                    "Вы не можете создать новое, пока текущее не будет закрыто.\n\n"
+                    "✍️ Продолжайте переписку: напишите ваше сообщение."
                 )
             )
             bot.answer_callback_query(call.id)
@@ -360,6 +402,25 @@ def start_support_ozon(call: CallbackQuery) -> None:
             'ticket_id': ticket.id,
             'platform': 'ozon'
         }
+
+        # Если есть контекст из гарантии — добавляем стартовое сообщение с деталями
+        try:
+            ctx = warranty_to_support_context.pop(call.message.chat.id, None)
+            if ctx and ctx.get('text'):
+                SupportMessage.objects.create(
+                    ticket=ticket,
+                    sender=user,
+                    sender_type='user',
+                    message_text=ctx['text'],
+                    telegram_message_id=None,
+                )
+                ticket.unread_by_admin = True
+                ticket.last_message_at = timezone.now()
+                ticket.last_message_from = 'user'
+                ticket.messages_count = (ticket.messages_count or 0) + 1
+                ticket.save(update_fields=['unread_by_admin','last_message_at','last_message_from','messages_count'])
+        except Exception:
+            pass
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -398,14 +459,14 @@ def start_support_wildberries(call: CallbackQuery) -> None:
                 'platform': existing_ticket.platform
             }
 
-            # Не уведомляем админов здесь; уведомим при следующем сообщении пользователя
-
+            # Сообщаем, что новое обращение создать нельзя, пока активное не закрыто
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text=(
-                    f"✍️ Продолжайте переписку по вашему обращению #{existing_ticket.id}.\n"
-                    "Напишите ваше сообщение."
+                    f"ℹ️ У вас уже есть активное обращение #{existing_ticket.id}.\n\n"
+                    "Вы не можете создать новое, пока текущее не будет закрыто.\n\n"
+                    "✍️ Продолжайте переписку: напишите ваше сообщение."
                 )
             )
             bot.answer_callback_query(call.id)
@@ -429,6 +490,25 @@ def start_support_wildberries(call: CallbackQuery) -> None:
             'ticket_id': ticket.id,
             'platform': 'wildberries'
         }
+
+        # Если есть контекст из гарантии — добавляем стартовое сообщение с деталями
+        try:
+            ctx = warranty_to_support_context.pop(call.message.chat.id, None)
+            if ctx and ctx.get('text'):
+                SupportMessage.objects.create(
+                    ticket=ticket,
+                    sender=user,
+                    sender_type='user',
+                    message_text=ctx['text'],
+                    telegram_message_id=None,
+                )
+                ticket.unread_by_admin = True
+                ticket.last_message_at = timezone.now()
+                ticket.last_message_from = 'user'
+                ticket.messages_count = (ticket.messages_count or 0) + 1
+                ticket.save(update_fields=['unread_by_admin','last_message_at','last_message_from','messages_count'])
+        except Exception:
+            pass
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
@@ -528,7 +608,11 @@ def handle_support_message(message: Message) -> None:
                         f"Новое вложение в обращении #{ticket.id} от {ticket.user.user_name}.\n"
                         f"Тип: {content_type}. Нажмите, чтобы получить все файлы по обращению."
                     )
-                    bot.send_message(ticket.assigned_admin.telegram_id, info, reply_markup=get_ticket_files_markup(ticket.id))
+                    sent = bot.send_message(ticket.assigned_admin.telegram_id, info, reply_markup=get_ticket_files_markup(ticket.id))
+                    try:
+                        _track_admin_message(ticket, ticket.assigned_admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
         except Exception as e:
             logger.error(f"Ошибка уведомления о медиа по тикету #{ticket.id}: {e}")
         
@@ -667,6 +751,8 @@ def accept_support_ticket(call: CallbackQuery) -> None:
             ),
             reply_markup=markup
         )
+        # Учитываем сообщение-карточку, отредактированное ботом
+        _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
         
         # Уведомляем пользователя, что обращение принято
         try:
@@ -719,28 +805,75 @@ def handle_admin_response(message: Message) -> None:
             del admin_response_state[chat_id]
             return True
         
+        # Определяем тип контента ответа админа
+        content_type = 'text'
+        file_id = None
+        caption = None
+        message_text = None
+
+        if getattr(message, 'photo', None):
+            content_type = 'photo'
+            file_id = message.photo[-1].file_id
+            caption = message.caption
+        elif getattr(message, 'video', None):
+            content_type = 'video'
+            file_id = message.video.file_id
+            caption = message.caption
+        elif getattr(message, 'document', None):
+            content_type = 'document'
+            file_id = message.document.file_id
+            caption = message.caption
+        elif getattr(message, 'text', None):
+            content_type = 'text'
+            message_text = message.text
+
         # Сохраняем ответ админа
         SupportMessage.objects.create(
             ticket=ticket,
             sender=admin,
             sender_type='admin',
-            message_text=message.text,
-            telegram_message_id=str(message.message_id)
+            message_text=message_text or (caption or ''),
+            telegram_message_id=str(message.message_id),
+            content_type=content_type,
+            file_id=file_id,
+            caption=caption,
         )
-        
-        # Отправляем ответ пользователю
-        bot.send_message(
-            chat_id=ticket.user.telegram_id,
-            text=f"💬 Ответ от поддержки:\n\n{message.text}",
-            reply_markup=get_close_ticket_markup()
-        )
-        
-        # Отображаем отправленный ответ у админа (эхо-сообщение)
-        bot.send_message(
-            chat_id=chat_id,
-            text=f"✅ Ответ отправлен пользователю.\n\nВы: {message.text}",
-            reply_markup=get_admin_response_markup(ticket_id)
-        )
+
+        # Отправляем ответ пользователю: медиа отправляем как медиа без дополнительных кнопок
+        try:
+            prefix = f"💬 Ответ от поддержки по обращению #{ticket.id}"
+            if content_type == 'photo' and file_id:
+                bot.send_photo(ticket.user.telegram_id, file_id, caption=(caption or prefix))
+            elif content_type == 'video' and file_id:
+                bot.send_video(ticket.user.telegram_id, file_id, caption=(caption or prefix))
+            elif content_type == 'document' and file_id:
+                bot.send_document(ticket.user.telegram_id, file_id, caption=(caption or prefix))
+            else:
+                # текст по-прежнему с кнопкой закрытия обращения
+                bot.send_message(
+                    chat_id=ticket.user.telegram_id,
+                    text=f"{prefix}:\n\n{message_text}",
+                    reply_markup=get_close_ticket_markup()
+                )
+        except Exception as e:
+            logger.error(f"Ошибка отправки ответа пользователю {ticket.user.telegram_id}: {e}")
+
+        # Эхо у админа
+        try:
+            if content_type == 'text':
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=f"✅ Ответ отправлен пользователю.\n\nВы: {message_text}",
+                    reply_markup=get_admin_response_markup(ticket_id)
+                )
+            else:
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=f"✅ Медиа отправлено пользователю (тип: {content_type}).",
+                    reply_markup=get_admin_response_markup(ticket_id)
+                )
+        except Exception:
+            pass
         # Обновляем тикет: прочитано админом, непрочитано пользователем
         ticket.unread_by_user = True
         ticket.unread_by_admin = False
@@ -772,6 +905,10 @@ def finish_ticket_processing(call: CallbackQuery) -> None:
                 message_id=call.message.message_id,
                 text="❌ Обращение уже закрыто пользователем."
             )
+            try:
+                _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
+            except Exception:
+                pass
             bot.answer_callback_query(call.id, "Обращение уже закрыто")
             return
         
@@ -799,6 +936,20 @@ def finish_ticket_processing(call: CallbackQuery) -> None:
             message_id=call.message.message_id,
             text=ADMIN_TICKET_FINISHED_TEXT
         )
+        try:
+            _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
+
+        # Чистим все сообщения, связанные с тикетом, у администраторов
+        try:
+            _cleanup_admin_messages(ticket)
+        except Exception:
+            pass
+        try:
+            _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
         
         bot.answer_callback_query(call.id)
         
@@ -867,6 +1018,10 @@ def view_ticket_details(call: CallbackQuery) -> None:
                 text=message_history + "\n\n✅ Вы назначены на это обращение. Можете отвечать пользователю.",
                 reply_markup=markup
             )
+            try:
+                _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
+            except Exception:
+                pass
         else:
             # Если админ не назначен, предлагаем принять/отказаться
             from bot.keyboards import get_admin_ticket_decision_markup
@@ -876,6 +1031,10 @@ def view_ticket_details(call: CallbackQuery) -> None:
                 text=message_history,
                 reply_markup=get_admin_ticket_decision_markup(ticket_id)
             )
+            try:
+                _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
+            except Exception:
+                pass
         
         bot.answer_callback_query(call.id)
         
@@ -1014,6 +1173,7 @@ def takeover_support_ticket(call: CallbackQuery) -> None:
             ),
             reply_markup=markup
         )
+        _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
 
         # Уведомляем пользователя о смене администратора
         try:
@@ -1073,11 +1233,23 @@ def send_ticket_files_to_admin(call: CallbackQuery) -> None:
             try:
                 caption = msg.caption or f"Файл из обращения #{ticket.id}"
                 if msg.content_type == 'photo' and msg.file_id:
-                    bot.send_photo(admin.telegram_id, msg.file_id, caption=caption)
+                    sent = bot.send_photo(admin.telegram_id, msg.file_id, caption=caption)
+                    try:
+                        _track_admin_message(ticket, admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
                 elif msg.content_type == 'video' and msg.file_id:
-                    bot.send_video(admin.telegram_id, msg.file_id, caption=caption)
+                    sent = bot.send_video(admin.telegram_id, msg.file_id, caption=caption)
+                    try:
+                        _track_admin_message(ticket, admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
                 elif msg.content_type == 'document' and msg.file_id:
-                    bot.send_document(admin.telegram_id, msg.file_id, caption=caption)
+                    sent = bot.send_document(admin.telegram_id, msg.file_id, caption=caption)
+                    try:
+                        _track_admin_message(ticket, admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
                 else:
                     # На случай неизвестного типа
                     bot.send_message(admin.telegram_id, f"Вложение ({msg.content_type}) без file_id")
@@ -1119,11 +1291,23 @@ def send_all_ticket_files_to_admin(call: CallbackQuery) -> None:
             try:
                 caption = msg.caption or f"Файл из обращения #{ticket.id}"
                 if msg.content_type == 'photo' and msg.file_id:
-                    bot.send_photo(admin.telegram_id, msg.file_id, caption=caption)
+                    sent = bot.send_photo(admin.telegram_id, msg.file_id, caption=caption)
+                    try:
+                        _track_admin_message(ticket, admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
                 elif msg.content_type == 'video' and msg.file_id:
-                    bot.send_video(admin.telegram_id, msg.file_id, caption=caption)
+                    sent = bot.send_video(admin.telegram_id, msg.file_id, caption=caption)
+                    try:
+                        _track_admin_message(ticket, admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
                 elif msg.content_type == 'document' and msg.file_id:
-                    bot.send_document(admin.telegram_id, msg.file_id, caption=caption)
+                    sent = bot.send_document(admin.telegram_id, msg.file_id, caption=caption)
+                    try:
+                        _track_admin_message(ticket, admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
                 else:
                     bot.send_message(admin.telegram_id, f"Вложение ({msg.content_type}) без file_id")
                 sent += 1
@@ -1192,7 +1376,7 @@ def notify_admins_about_new_ticket(ticket: SupportTicket) -> None:
         admins = get_relevant_admins_for_ticket(ticket)
         for admin in admins:
             try:
-                bot.send_message(
+                sent = bot.send_message(
                     chat_id=admin.telegram_id,
                     text=ADMIN_NEW_TICKET_TEXT.format(
                         user_name=ticket.user.user_name,
@@ -1201,6 +1385,7 @@ def notify_admins_about_new_ticket(ticket: SupportTicket) -> None:
                     ),
                     reply_markup=get_admin_ticket_markup(ticket.id)
                 )
+                _track_admin_message(ticket, admin.telegram_id, sent.message_id)
             except Exception as e:
                 logger.error(f"Ошибка при отправке уведомления админу {admin.telegram_id}: {e}")
                 
@@ -1252,15 +1437,27 @@ def _forward_to_admins(ticket: SupportTicket, message: Message) -> None:
                     from bot.keyboards import get_admin_response_markup
                     bot.send_message(admin.telegram_id, f"{header}\n\n{message.text}", reply_markup=get_admin_response_markup(ticket.id))
                 else:
-                    bot.send_message(admin.telegram_id, f"{header}\n\n{message.text}", reply_markup=get_admin_ticket_markup(ticket.id))
+                    sent = bot.send_message(admin.telegram_id, f"{header}\n\n{message.text}", reply_markup=get_admin_ticket_markup(ticket.id))
+                    try:
+                        _track_admin_message(ticket, admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
             else:
                 # Для медиа не пересылаем файл напрямую — пусть будет кнопка "Получить файлы"
                 if ticket.assigned_admin and ticket.assigned_admin.telegram_id == admin.telegram_id:
                     from bot.keyboards import get_admin_response_with_files_markup
-                    bot.send_message(admin.telegram_id, f"{header}\n\nПолучено вложение. Нажмите, чтобы получить файлы.", reply_markup=get_admin_response_with_files_markup(ticket.id))
+                    sent = bot.send_message(admin.telegram_id, f"{header}\n\nПолучено вложение. Нажмите, чтобы получить файлы.", reply_markup=get_admin_response_with_files_markup(ticket.id))
+                    try:
+                        _track_admin_message(ticket, admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
                 else:
                     from bot.keyboards import get_ticket_files_markup
-                    bot.send_message(admin.telegram_id, f"{header}\n\nПолучено вложение. Нажмите, чтобы получить файлы.", reply_markup=get_ticket_files_markup(ticket.id))
+                    sent = bot.send_message(admin.telegram_id, f"{header}\n\nПолучено вложение. Нажмите, чтобы получить файлы.", reply_markup=get_ticket_files_markup(ticket.id))
+                    try:
+                        _track_admin_message(ticket, admin.telegram_id, sent.message_id)
+                    except Exception:
+                        pass
         except Exception as e:
             logger.error(f"Ошибка отправки сообщения админу {admin.telegram_id}: {e}")
 

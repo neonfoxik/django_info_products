@@ -13,6 +13,7 @@ from .support import (
     handle_admin_response, finish_ticket_processing, view_ticket_details,
     already_assigned_callback, support_state, admin_response_state
 )
+from .warranty import process_warranty_questionnaire_answer
 from bot.apis import analyze_screenshot
 from bot.apis.ai import OpenAIAPI
 from functools import wraps
@@ -753,6 +754,18 @@ def cancel_warranty_activation(call: CallbackQuery) -> None:
 def check_screenshot(message: Message) -> None:
     """Проверяет скриншот отзыва для активации расширенной гарантии"""
     try:
+        # Если это админ отвечает в обращении — не обрабатывать как скриншот
+        try:
+            if message.chat.id in admin_response_state:
+                from .support import handle_admin_response
+                handle_admin_response(message)
+                return
+            # Также игнорируем любые фото от админов вне контекста гарантий
+            u = User.objects.get(telegram_id=message.chat.id)
+            if getattr(u, 'is_admin', False):
+                return
+        except Exception:
+            pass
         print(f"[LOG] ПОЛУЧЕНА ФОТОГРАФИЯ ОТ ПОЛЬЗОВАТЕЛЯ {message.chat.id}")
         print(f"[LOG] Тип сообщения: {type(message)}")
         logger.info(f"[LOG] ПОЛУЧЕНА ФОТОГРАФИЯ ОТ ПОЛЬЗОВАТЕЛЯ {message.chat.id}")
@@ -1452,6 +1465,10 @@ def chat_with_ai(message):
         if message.chat.id in support_state:
             if handle_support_message(message):
                 return
+
+        # Проверяем, находится ли пользователь на этапе ответов анкеты гарантийного случая
+        if process_warranty_questionnaire_answer(message):
+            return
         
         # Проверяем, отвечает ли админ на обращение
         if message.chat.id in admin_response_state:

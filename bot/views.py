@@ -195,10 +195,24 @@ category_handler = bot.callback_query_handler(lambda c: c.data.startswith("categ
 product_handler = bot.callback_query_handler(lambda c: c.data.startswith("product_"))(show_product_menu)
 back_to_categories_handler = bot.callback_query_handler(lambda c: c.data == "back_to_categories")(back_to_categories)
 
+# Новые обработчики для системы гарантийных обращений (ДОЛЖНЫ БЫТЬ ПЕРЕД warranty_info_handler!)
+from bot.handlers.warranty import (
+    warranty_start, warranty_select_category, warranty_select_product,
+    warranty_select_issue, warranty_helped, warranty_not_helped, warranty_other
+)
+
+warranty_start_handler = bot.callback_query_handler(lambda c: c.data == "warranty_start")(warranty_start)
+warranty_category_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_category_"))(warranty_select_category)
+warranty_product_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_product_"))(warranty_select_product)
+warranty_issue_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_issue_"))(warranty_select_issue)
+warranty_helped_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_helped_"))(warranty_helped)
+warranty_not_helped_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_not_helped_"))(warranty_not_helped)
+warranty_other_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_other_"))(warranty_other)
+
 # Обработчики для информации о товаре
 instructions_handler = bot.callback_query_handler(lambda c: c.data.startswith("instructions_"))(show_product_info)
 faq_handler = bot.callback_query_handler(lambda c: c.data.startswith("faq_"))(show_product_info)
-warranty_info_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_") and not c.data.startswith("warranty_main") and not c.data.startswith("warranty_conditions") and not c.data.startswith("warranty_activation") and not c.data.startswith("warranty_case") and c.data != "warranty_cases")(show_product_info)
+warranty_info_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_") and not c.data.startswith("warranty_main") and not c.data.startswith("warranty_conditions") and not c.data.startswith("warranty_activation") and not c.data.startswith("warranty_case") and c.data != "warranty_cases" and c.data != "warranty_start" and not c.data.startswith("warranty_category_") and not c.data.startswith("warranty_product_") and not c.data.startswith("warranty_issue_") and not c.data.startswith("warranty_helped_") and not c.data.startswith("warranty_not_helped_") and not c.data.startswith("warranty_other_"))(show_product_info)
 support_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_") and c.data.split('_')[1].isdigit())(show_product_info)
 
 # Обработчики для расширенной гарантии
