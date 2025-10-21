@@ -10,7 +10,7 @@ from django.contrib.auth.models import User
 # Главное меню (базовое без админки)
 main_markup = InlineKeyboardMarkup()
 btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog")
-btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="help_main")
+btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="support_start")
 btn3 = InlineKeyboardButton("🛡️ Гарантия", callback_data="warranty_main_menu")
 btn4 = InlineKeyboardButton("🎁 Получить подарок", callback_data="get_promocode")
 main_markup.add(btn1).add(btn2).add(btn3).add(btn4)
@@ -19,7 +19,7 @@ def get_main_markup_for_user(user_id: int) -> InlineKeyboardMarkup:
     """Создает главное меню с учетом роли пользователя"""
     markup = InlineKeyboardMarkup()
     btn1 = InlineKeyboardButton("🛒 Каталог товаров", callback_data="catalog")
-    btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="help_main")
+    btn2 = InlineKeyboardButton("📞 Поддержка", callback_data="support_start")
     btn3 = InlineKeyboardButton("🛡️ Гарантия", callback_data="warranty_main_menu")
     btn4 = InlineKeyboardButton("🎁 Получить подарок", callback_data="get_promocode")
     
@@ -78,7 +78,7 @@ def get_product_menu_markup(product_id):
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("📖 Инструкция", callback_data=f"instructions_{product_id}"))
     markup.add(InlineKeyboardButton("❓ FAQ", callback_data=f"faq_{product_id}"))
-    markup.add(InlineKeyboardButton("🛡️ Гарантия", callback_data=f"warranty_{product_id}"))
+    #markup.add(InlineKeyboardButton("🛡️ Гарантия", callback_data=f"warranty_{product_id}"))
     #markup.add(InlineKeyboardButton("📞 Поддержка", callback_data=f"support_{product_id}"))
     markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"category_{product_id}"))
     return markup

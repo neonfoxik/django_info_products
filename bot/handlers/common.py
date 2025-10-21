@@ -4,14 +4,16 @@ from bot.texts import MAIN_TEXT, SUPPORT_TEXT, SUPPORT_LIMIT_REACHED, AI_ERROR
 from bot.texts import SEND_SCREENSHOT, SCREENSHOT_PROCESSING, SCREENSHOT_CHECKING, SCREENSHOT_INVALID, SCREENSHOT_VERIFIED, SCREENSHOT_LIMIT_REACHED
 from bot.texts import WARRANTY_CONDITIONS_TEXT
 from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup, get_main_markup_for_user
-from bot.keyboards import get_warranty_markup_with_extended, get_screenshot_markup, get_warranty_main_menu_markup
+from bot.keyboards import get_screenshot_markup, get_warranty_main_menu_markup
 from .registration import start_registration
 from bot.models import goods, goods_category, User, Support, FAQ, Instruction
 from .support import (
     show_support_menu, start_support_ozon, start_support_wildberries,
     handle_support_message, close_support_ticket, accept_support_ticket,
     handle_admin_response, finish_ticket_processing, view_ticket_details,
-    already_assigned_callback, support_state, admin_response_state
+    already_assigned_callback, support_state, admin_response_state,
+    process_support_questionnaire_answer, support_start, support_select_category,
+    support_select_product, support_select_issue, support_helped, support_not_helped, support_other
 )
 from .warranty import process_warranty_questionnaire_answer
 from bot.apis import analyze_screenshot
@@ -478,43 +480,14 @@ def show_product_info(call: CallbackQuery) -> None:
         product_id = int(parts[1])
         
         # Проверяем, что тип информации валидный
-        if info_type not in ['instructions', 'faq', 'warranty']:
+        if info_type not in ['instructions', 'faq']:
             raise ValueError(f"Неизвестный тип информации: {info_type}")
         
         product = goods.objects.get(id=product_id)
-        user = User.objects.get(telegram_id=call.message.chat.id)
-        warranty_data = user.warranty_data or []
-        if isinstance(warranty_data, str):
-            try:
-                warranty_data = json.loads(warranty_data)
-            except Exception:
-                warranty_data = []
-        if isinstance(warranty_data, dict):
-            migrated = []
-            for pid, data in warranty_data.items():
-                if isinstance(data, dict):
-                    info = data.get('info', {})
-                    migrated.append({
-                        'product_id': int(pid),
-                        'name': info.get('name', ''),
-                        'warranty_period': info.get('warranty_period', ''),
-                        'end_date': info.get('end_date', ''),
-                        'purchase_date': info.get('review_date', ''),
-                        'screenshot': data.get('screenshot'),
-                        'status': info.get('status', 'Активна')
-                    })
-            warranty_data = migrated
-        # Найти все активные гарантии на этот товар
-        product_warranties = [w for w in warranty_data if w.get('product_id') == product_id and w.get('status', 'Активна') == 'Активна']
-        has_warranty = bool(product_warranties)
-
-        # Только для раздела "Гарантия" показываем кнопку активации
-        if info_type == "warranty":
-            markup = get_warranty_markup_with_extended(product_id, has_warranty)
-        else:
-            # Для других разделов — только кнопка назад к товару
-            markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
+        
+        # Для всех разделов — только кнопка назад к товару
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
 
         # Удаляем предыдущее сообщение
         try:
@@ -605,68 +578,6 @@ def show_product_info(call: CallbackQuery) -> None:
                                     text=text,
                 reply_markup=markup
                 )
-        elif info_type == "warranty":
-            # Информация о гарантии берется из модели товара
-            warranty_years = product.extended_warranty
-            if warranty_years < 1:
-                months = int(warranty_years * 12)
-                warranty_period = f"{months} {'месяц' if months == 1 else 'месяца' if 1 < months < 5 else 'месяцев'}"
-            else:
-                years = int(warranty_years) if warranty_years.is_integer() else warranty_years
-                if years == 1:
-                    warranty_period = "1 год"
-                elif years in [2, 3, 4]:
-                    warranty_period = f"{years} года"
-                else:
-                    warranty_period = f"{years} лет"
-
-            # Собираем все гарантии пользователя на этот товар
-            all_warranties = [w for w in warranty_data if w.get('product_id') == product_id]
-            # Кнопка для активации ещё одной гарантии всегда доступна
-            markup = InlineKeyboardMarkup()
-            activate_btn = InlineKeyboardButton("➕ Активировать ещё одну гарантию", callback_data=f"activate_warranty_{product_id}")
-            markup.add(activate_btn)
-            markup.add(InlineKeyboardButton("📋 Условия гарантии", callback_data="warranty_conditions"))
-            markup.add(InlineKeyboardButton("🛠️ Обратиться по гарантии", callback_data="warranty_cases"))
-            markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}"))
-            if has_warranty:
-                # Если у пользователя уже есть одна или несколько гарантий
-                dates = [w.get('end_date', '-') for w in all_warranties]
-                dates_str = '\n'.join([f"• {d}" for d in dates])
-                text = (
-                    f"🛡️ У вас активировано {len(dates)} гарантий на {product.name}.\n"
-                    f"Даты окончания ваших гарантий:\n{dates_str}"
-                )
-                bot.send_message(
-                    chat_id=call.message.chat.id,
-                    text=text,
-                    reply_markup=markup
-                )
-            else:
-                # Если расширенной гарантии нет, показываем информацию о том, как её получить
-                text = (
-                    f"✨ Как получить расширенную гарантию?\n\n"
-                    f"1️⃣ Оставьте отзыв с 5 звездами о товаре\n"
-                    f"2️⃣ Сделайте скриншот отзыва\n"
-                    f"3️⃣ Отправьте скриншот боту\n\n"
-                    f"После проверки отзыва, вы получите расширенную гарантию сроком на {warranty_period}!"
-                )
-                bot.send_message(
-                    chat_id=call.message.chat.id,
-                    text=text,
-                    reply_markup=markup
-                )
-        elif info_type == "support":
-            text = SUPPORT_TEXT
-            user = User.objects.get(telegram_id=call.message.chat.id)
-            user.is_ai = True
-            user.chat_history = {}  # Сбрасываем историю чата
-            user.save()
-            bot.send_message(
-                chat_id=call.message.chat.id,
-                text=text,
-                reply_markup=markup
-            )
         else:
             return
     
@@ -1461,14 +1372,33 @@ def chat_with_ai(message):
             process_warranty_case_description(message)
             return
         
-        # Проверяем, находится ли пользователь в режиме поддержки
-        if message.chat.id in support_state:
-            if handle_support_message(message):
-                return
-
         # Проверяем, находится ли пользователь на этапе ответов анкеты гарантийного случая
         if process_warranty_questionnaire_answer(message):
             return
+        
+        # Проверяем, находится ли пользователь на этапе ответов анкеты поддержки
+        if process_support_questionnaire_answer(message):
+            return
+
+        # Проверяем, находится ли пользователь в режиме поддержки
+        if message.chat.id in support_state:
+            # Сначала проверяем, действительно ли обращение активно
+            try:
+                from bot.models import SupportTicket
+                ticket_id = support_state[message.chat.id]['ticket_id']
+                ticket = SupportTicket.objects.get(id=ticket_id)
+                
+                # Если обращение закрыто, очищаем состояние и продолжаем обработку
+                if ticket.status == 'closed':
+                    del support_state[message.chat.id]
+                else:
+                    # Обращение активно, обрабатываем сообщение
+                    if handle_support_message(message):
+                        return
+            except Exception:
+                # Если что-то пошло не так, очищаем состояние
+                if message.chat.id in support_state:
+                    del support_state[message.chat.id]
         
         # Проверяем, отвечает ли админ на обращение
         if message.chat.id in admin_response_state:
@@ -2630,16 +2560,11 @@ def waranty_goods_fast(call: CallbackQuery):
 
 @disable_ai_mode
 def support_main_menu(call: CallbackQuery) -> None:
-    """Показать главное меню поддержки"""
-    from bot.texts import SUPPORT_MAIN_TEXT
-    from bot.keyboards import support_markup
+    """Показать главное меню поддержки - новая система"""
+    from bot.handlers.support import support_start
     
-    bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        text=SUPPORT_MAIN_TEXT,
-        reply_markup=support_markup
-    )
+    # Перенаправляем на новую систему поддержки
+    support_start(call)
 
 @disable_ai_mode
 def support_ozon(call: CallbackQuery) -> None:

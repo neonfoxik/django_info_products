@@ -147,6 +147,16 @@ def warranty_start(call: CallbackQuery) -> None:
                     )
                 )
         
+        # Проверяем, есть ли активные обращения у пользователя
+        from bot.models import SupportTicket
+        active_tickets = SupportTicket.objects.filter(
+            user=user,
+            status__in=['open', 'in_progress']
+        ).exists()
+        
+        if active_tickets:
+            markup.add(InlineKeyboardButton("📋 Мои обращения", callback_data="support_my_tickets"))
+        
         markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
         
         # Удаляем старое сообщение

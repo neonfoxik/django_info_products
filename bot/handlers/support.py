@@ -1,7 +1,7 @@
-from telebot.types import Message, CallbackQuery
+from telebot.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from django.utils import timezone
 from bot import bot
-from bot.models import User, SupportTicket, SupportMessage, OwnerSettings, WarrantyRequest, WarrantyAnswer
+from bot.models import User, SupportTicket, SupportMessage, OwnerSettings, WarrantyRequest, WarrantyAnswer, WarrantyQuestion, goods, goods_category, WarrantyIssue
 from bot.texts import (
     SUPPORT_WELCOME_TEXT, SUPPORT_OZON_START_TEXT, SUPPORT_WILDBERRIES_START_TEXT,
     SUPPORT_MESSAGE_RECEIVED_TEXT, SUPPORT_TICKET_CLOSED_TEXT,
@@ -27,6 +27,10 @@ admin_response_state = {}
 broadcast_state = {}
 # Контекст для переноса деталей из гарантийного обращения в новое обращение поддержки
 warranty_to_support_context = {}
+# Словарь для отслеживания анкеты поддержки
+support_qna_state = {}
+# Контекст для переноса деталей из обращения в поддержку в новое обращение поддержки
+support_to_support_context = {}
 
 # ===== Helpers for tracking and cleanup admin chat messages =====
 def _track_admin_message(ticket: SupportTicket, admin_chat_id: int, message_id: int) -> None:
@@ -358,6 +362,10 @@ def start_support_ozon(call: CallbackQuery) -> None:
         
         user, created = User.objects.get_or_create(telegram_id=call.message.chat.id)
         
+        # Очищаем старое состояние пользователя, если оно есть
+        if call.message.chat.id in support_state:
+            del support_state[call.message.chat.id]
+        
         # Проверяем, есть ли уже открытое обращение
         existing_ticket = SupportTicket.objects.filter(
             user=user, 
@@ -403,9 +411,12 @@ def start_support_ozon(call: CallbackQuery) -> None:
             'platform': 'ozon'
         }
 
-        # Если есть контекст из гарантии — добавляем стартовое сообщение с деталями
+        # Если есть контекст из гарантии или поддержки — добавляем стартовое сообщение с деталями
         try:
             ctx = warranty_to_support_context.pop(call.message.chat.id, None)
+            if not ctx:
+                ctx = support_to_support_context.pop(call.message.chat.id, None)
+            
             if ctx and ctx.get('text'):
                 SupportMessage.objects.create(
                     ticket=ticket,
@@ -445,6 +456,10 @@ def start_support_wildberries(call: CallbackQuery) -> None:
         print(f"[DEBUG] start_support_wildberries вызвана для пользователя {call.message.chat.id}")
         
         user, created = User.objects.get_or_create(telegram_id=call.message.chat.id)
+        
+        # Очищаем старое состояние пользователя, если оно есть
+        if call.message.chat.id in support_state:
+            del support_state[call.message.chat.id]
         
         # Проверяем, есть ли уже открытое обращение
         existing_ticket = SupportTicket.objects.filter(
@@ -491,9 +506,12 @@ def start_support_wildberries(call: CallbackQuery) -> None:
             'platform': 'wildberries'
         }
 
-        # Если есть контекст из гарантии — добавляем стартовое сообщение с деталями
+        # Если есть контекст из гарантии или поддержки — добавляем стартовое сообщение с деталями
         try:
             ctx = warranty_to_support_context.pop(call.message.chat.id, None)
+            if not ctx:
+                ctx = support_to_support_context.pop(call.message.chat.id, None)
+            
             if ctx and ctx.get('text'):
                 SupportMessage.objects.create(
                     ticket=ticket,
@@ -537,17 +555,22 @@ def handle_support_message(message: Message) -> None:
         
         user = User.objects.get(telegram_id=chat_id)
         ticket_id = support_state[chat_id]['ticket_id']
-        ticket = SupportTicket.objects.get(id=ticket_id)
+        
+        try:
+            ticket = SupportTicket.objects.get(id=ticket_id)
+        except SupportTicket.DoesNotExist:
+            # Если обращение не найдено, очищаем состояние
+            if chat_id in support_state:
+                del support_state[chat_id]
+            return False
         
         # Проверяем, не закрыто ли уже обращение
         if ticket.status == 'closed':
-            bot.send_message(
-                chat_id=chat_id,
-                text="❌ Обращение уже закрыто. Вы не можете отправлять сообщения в закрытое обращение."
-            )
             # Удаляем состояние пользователя
-            del support_state[chat_id]
-            return True
+            if chat_id in support_state:
+                del support_state[chat_id]
+            # Возвращаем False, чтобы сообщение обрабатывалось дальше
+            return False
         
         # Определяем тип контента и сохраняем сообщение пользователя
         content_type = 'text'
@@ -920,6 +943,10 @@ def finish_ticket_processing(call: CallbackQuery) -> None:
         # Удаляем состояние админа
         if call.message.chat.id in admin_response_state:
             del admin_response_state[call.message.chat.id]
+        
+        # Удаляем состояние пользователя
+        if ticket.user.telegram_id in support_state:
+            del support_state[ticket.user.telegram_id]
         
         # Уведомляем пользователя о завершении обращения
         try:
@@ -1474,3 +1501,497 @@ def _notify_admins_user_continues(ticket: SupportTicket) -> None:
         bot.send_message(ticket.assigned_admin.telegram_id, text, reply_markup=get_admin_response_markup(ticket.id))
     except Exception as e:
         logger.error(f"Ошибка отправки уведомления назначенному админу {ticket.assigned_admin.telegram_id}: {e}")
+
+
+# ===== НОВЫЕ ФУНКЦИИ ДЛЯ ПОДДЕРЖКИ (АНАЛОГ ГАРАНТИЙНЫХ) =====
+
+def _start_support_questionnaire(user: User, support_request: dict, chat_id: int) -> None:
+    """Начинает анкету поддержки с первым вопросом."""
+    questions = WarrantyQuestion.objects.filter(is_active=True).order_by('order')
+    if not questions.exists():
+        _finish_support_questionnaire_and_ask_platform(user, support_request, chat_id)
+        return
+    
+    support_qna_state[chat_id] = {
+        'user_id': user.telegram_id,
+        'support_request': support_request,
+        'current_question': 0,
+        'questions': list(questions.values_list('id', 'text'))
+    }
+    
+    first_q = questions[0]
+    bot.send_message(chat_id=chat_id, text=f"❓ {first_q.text}")
+
+
+def _finish_support_questionnaire_and_ask_platform(user: User, support_request: dict, chat_id: int) -> None:
+    """Формирует контекст для поддержки с ответами и показывает выбор платформы."""
+    details = [
+        "Пользователь оформляет обращение в поддержку.",
+    ]
+    try:
+        if support_request.get('product'):
+            details.append(f"Товар: {support_request['product'].name}")
+        if support_request.get('issue'):
+            details.append(f"Проблема: {support_request['issue'].title}")
+        if support_request.get('custom_issue_description'):
+            details.append(f"Описание: {support_request['custom_issue_description']}")
+        # Добавляем ответы на вопросы
+        if support_request.get('answers'):
+            details.append("\nОтветы на уточняющие вопросы:")
+            for q_text, answer in support_request['answers']:
+                details.append(f"- {q_text}\n  Ответ: {answer}")
+    except Exception:
+        pass
+    support_to_support_context[chat_id] = {
+        'text': "\n".join(details)
+    }
+    bot.send_message(
+        chat_id=chat_id,
+        text=(
+            "Выберите платформу, где была покупка, чтобы открыть чат поддержки."
+        ),
+        reply_markup=get_support_platform_markup()
+    )
+
+
+def process_support_questionnaire_answer(message: Message) -> bool:
+    """
+    Обрабатывает ответы пользователя на вопросы анкеты поддержки.
+    Возвращает True, если сообщение обработано, False - если нет.
+    """
+    chat_id = message.chat.id
+    if chat_id not in support_qna_state:
+        return False
+    
+    try:
+        state = support_qna_state[chat_id]
+        user = User.objects.get(telegram_id=state['user_id'])
+        support_request = state['support_request']
+        questions = state['questions']
+        current_q_idx = state['current_question']
+        
+        # Сохраняем ответ
+        if current_q_idx < len(questions):
+            question_id, question_text = questions[current_q_idx]
+            answer_text = message.text
+            
+            # Сохраняем ответ в контексте
+            if 'answers' not in support_request:
+                support_request['answers'] = []
+            support_request['answers'].append((question_text, answer_text))
+            
+            # Переходим к следующему вопросу
+            next_q_idx = current_q_idx + 1
+            if next_q_idx < len(questions):
+                # Есть еще вопросы
+                support_qna_state[chat_id]['current_question'] = next_q_idx
+                next_question = questions[next_q_idx]
+                bot.send_message(chat_id=chat_id, text=f"❓ {next_question[1]}")
+            else:
+                # Анкета завершена
+                del support_qna_state[chat_id]
+                _finish_support_questionnaire_and_ask_platform(user, support_request, chat_id)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Ошибка в process_support_questionnaire_answer: {e}")
+        # Удаляем состояние при ошибке
+        if chat_id in support_qna_state:
+            del support_qna_state[chat_id]
+        return False
+
+
+def support_start(call: CallbackQuery) -> None:
+    """Начало процесса обращения в поддержку - выбор категории товара"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        
+        # Получаем все активные категории товаров
+        categories = goods_category.objects.all()
+        
+        if not categories.exists():
+            # Удаляем старое сообщение
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text="😔 К сожалению, категории товаров не найдены.",
+                reply_markup=InlineKeyboardMarkup().add(
+                    InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
+                )
+            )
+            bot.answer_callback_query(call.id)
+            return
+        
+        # Создаем клавиатуру с категориями
+        markup = InlineKeyboardMarkup()
+        for category in categories:
+            # Проверяем, есть ли активные товары в категории
+            products_count = goods.objects.filter(
+                parent_category=category,
+                is_active=True
+            ).count()
+            
+            if products_count > 0:
+                markup.add(
+                    InlineKeyboardButton(
+                        f"📦 {category.name} ({products_count})",
+                        callback_data=f"support_category_{category.id}"
+                    )
+                )
+        
+        # Проверяем, есть ли активные обращения у пользователя
+        active_tickets = SupportTicket.objects.filter(
+            user=user,
+            status__in=['open', 'in_progress']
+        ).exists()
+        
+        if active_tickets:
+            markup.add(InlineKeyboardButton("📋 Мои обращения", callback_data="support_my_tickets"))
+        
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+        
+        # Удаляем старое сообщение
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        text = "🛠️ *Обращение в поддержку*\n\n"
+        text += "Выберите категорию товара, с которым у вас возникла проблема:"
+        
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text=text,
+            parse_mode='Markdown',
+            reply_markup=markup
+        )
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в support_start: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+
+def support_select_category(call: CallbackQuery) -> None:
+    """Пользователь выбрал категорию - показываем товары"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        category_id = int(call.data.split('_')[-1])
+        category = goods_category.objects.get(id=category_id)
+        
+        # Получаем товары категории
+        products = goods.objects.filter(
+            parent_category=category,
+            is_active=True
+        ).order_by('name')
+        
+        if not products.exists():
+            # Удаляем старое сообщение
+            try:
+                bot.delete_message(call.message.chat.id, call.message.message_id)
+            except:
+                pass
+            
+            bot.send_message(
+                chat_id=call.message.chat.id,
+                text="😔 В этой категории пока нет товаров.",
+                reply_markup=InlineKeyboardMarkup().add(
+                    InlineKeyboardButton("⬅️ Назад", callback_data="support_start")
+                )
+            )
+            bot.answer_callback_query(call.id)
+            return
+        
+        # Создаем клавиатуру с товарами
+        markup = InlineKeyboardMarkup()
+        for product in products:
+            markup.add(
+                InlineKeyboardButton(
+                    f"📱 {product.name}",
+                    callback_data=f"support_product_{product.id}"
+                )
+            )
+        
+        markup.add(
+            InlineKeyboardButton(
+                "⬅️ Назад",
+                callback_data="support_start"
+            )
+        )
+        
+        # Удаляем старое сообщение
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        text = f"🛠️ *Обращение в поддержку*\n\n"
+        text += f"Категория: *{category.name}*\n\n"
+        text += "Выберите товар, с которым у вас возникла проблема:"
+        
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text=text,
+            parse_mode='Markdown',
+            reply_markup=markup
+        )
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в support_select_category: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+
+def support_select_product(call: CallbackQuery) -> None:
+    """Пользователь выбрал товар - показываем типичные проблемы"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        product_id = int(call.data.split('_')[-1])
+        product = goods.objects.get(id=product_id)
+        
+        # Создаем контекст для поддержки
+        support_request = {
+            'product': product,
+            'user': user
+        }
+        
+        # Получаем типичные проблемы для товара
+        issues = WarrantyIssue.objects.filter(
+            product=product,
+            is_active=True
+        ).order_by('order', 'title')
+        
+        # Создаем клавиатуру с проблемами
+        markup = InlineKeyboardMarkup()
+        
+        if issues.exists():
+            for issue in issues:
+                markup.add(
+                    InlineKeyboardButton(
+                        f"⚠️ {issue.title}",
+                        callback_data=f"support_issue_{issue.id}"
+                    )
+                )
+        
+        # Всегда добавляем кнопку "Другое"
+        markup.add(
+            InlineKeyboardButton(
+                "❓ Другое",
+                callback_data=f"support_other_{product_id}"
+            )
+        )
+        markup.add(
+            InlineKeyboardButton(
+                "⬅️ Назад",
+                callback_data=f"support_category_{product.parent_category.id}"
+            )
+        )
+        
+        text = f"🛠️ *Обращение в поддержку*\n\n"
+        text += f"Товар: *{product.name}*\n\n"
+        text += "Выберите проблему, с которой вы столкнулись:"
+        
+        # Удаляем старое сообщение
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text=text,
+            parse_mode='Markdown',
+            reply_markup=markup
+        )
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в support_select_product: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+
+def support_select_issue(call: CallbackQuery) -> None:
+    """Пользователь выбрал проблему - показываем решение"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        issue_id = int(call.data.split('_')[-1])
+        issue = WarrantyIssue.objects.get(id=issue_id)
+        
+        # Создаем контекст для поддержки
+        support_request = {
+            'product': issue.product,
+            'issue': issue,
+            'user': user
+        }
+        
+        # Клавиатура с кнопками
+        markup = InlineKeyboardMarkup()
+        markup.row(
+            InlineKeyboardButton("✅ Помогло", callback_data=f"support_helped_{issue.id}"),
+            InlineKeyboardButton("❌ Не помогло", callback_data=f"support_not_helped_{issue.id}")
+        )
+        markup.add(
+            InlineKeyboardButton("⬅️ Назад", callback_data=f"support_product_{issue.product.id}")
+        )
+        
+        # Формируем текст
+        text = f"🛠️ *Решение проблемы*\n\n"
+        text += f"Товар: *{issue.product.name}*\n"
+        text += f"Проблема: *{issue.title}*\n\n"
+        
+        # Проверяем, есть ли текстовое решение
+        has_text = bool(issue.solution_template and issue.solution_template.strip())
+        has_file = bool(issue.solution_file)
+        
+        if has_text:
+            # Экранируем специальные символы Markdown для корректного отображения
+            solution_text = issue.solution_template.replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]').replace('`', '\\`')
+            text += f"📝 *Инструкция:*\n\n{solution_text}\n\n"
+        
+        if has_file:
+            text += "📎 *Файл с инструкцией прикреплен ниже*\n\n"
+        
+        if not has_text and not has_file:
+            text += "ℹ️ Решение временно недоступно. Обратитесь к менеджеру.\n\n"
+        
+        text += "Помогло ли это решение?"
+        
+        # Удаляем старое сообщение
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        # Отправляем текст
+        msg = bot.send_message(
+            chat_id=call.message.chat.id,
+            text=text,
+            parse_mode='Markdown',
+            reply_markup=markup
+        )
+        
+        # Если есть файл, отправляем его
+        if has_file:
+            try:
+                with open(issue.solution_file.path, 'rb') as file:
+                    bot.send_document(
+                        chat_id=call.message.chat.id,
+                        document=file,
+                        caption=f"📋 Инструкция: {issue.title}"
+                    )
+            except Exception as e:
+                logger.error(f"Ошибка отправки файла решения: {e}")
+        
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в support_select_issue: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+
+def support_helped(call: CallbackQuery) -> None:
+    """Решение помогло"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        issue_id = int(call.data.split('_')[-1])
+        issue = WarrantyIssue.objects.get(id=issue_id)
+        
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main"))
+        
+        # Удаляем старое сообщение
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        # Отправляем новое сообщение
+        bot.send_message(
+            chat_id=call.message.chat.id,
+            text="✅ *Отлично!*\n\n"
+                 "Рады, что смогли помочь! 😊\n\n"
+                 "Если возникнут другие вопросы - обращайтесь!",
+            parse_mode='Markdown',
+            reply_markup=markup
+        )
+        bot.answer_callback_query(call.id, "Спасибо за обратную связь!")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в support_helped: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+
+def support_not_helped(call: CallbackQuery) -> None:
+    """Решение не помогло - переходим к анкете"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        issue_id = int(call.data.split('_')[-1])
+        issue = WarrantyIssue.objects.get(id=issue_id)
+        
+        # Удаляем старое сообщение
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        # Создаем контекст для поддержки
+        support_request = {
+            'product': issue.product,
+            'issue': issue,
+            'user': user
+        }
+        
+        # Проверяем, есть ли активные вопросы
+        questions = WarrantyQuestion.objects.filter(is_active=True).order_by('order')
+        if questions.exists():
+            # Начинаем анкету
+            _start_support_questionnaire(user, support_request, call.message.chat.id)
+        else:
+            # Нет вопросов, сразу переходим к выбору платформы
+            _finish_support_questionnaire_and_ask_platform(user, support_request, call.message.chat.id)
+        
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в support_not_helped: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
+
+def support_other(call: CallbackQuery) -> None:
+    """Пользователь выбрал "Другое" - переходим к анкете"""
+    try:
+        user = User.objects.get(telegram_id=call.message.chat.id)
+        product_id = int(call.data.split('_')[-1])
+        product = goods.objects.get(id=product_id)
+        
+        # Удаляем старое сообщение
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
+            pass
+        
+        # Создаем контекст для поддержки
+        support_request = {
+            'product': product,
+            'user': user
+        }
+        
+        # Проверяем, есть ли активные вопросы
+        questions = WarrantyQuestion.objects.filter(is_active=True).order_by('order')
+        if questions.exists():
+            # Начинаем анкету
+            _start_support_questionnaire(user, support_request, call.message.chat.id)
+        else:
+            # Нет вопросов, сразу переходим к выбору платформы
+            _finish_support_questionnaire_and_ask_platform(user, support_request, call.message.chat.id)
+        
+        bot.answer_callback_query(call.id)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в support_other: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
