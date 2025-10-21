@@ -361,7 +361,9 @@ def warranty_select_issue(call: CallbackQuery) -> None:
         has_file = bool(issue.solution_file)
         
         if has_text:
-            text += f"📝 *Инструкция:*\n\n{issue.solution_template}\n\n"
+            # Экранируем специальные символы Markdown для корректного отображения
+            solution_text = issue.solution_template.replace('*', '\\*').replace('_', '\\_').replace('[', '\\[').replace(']', '\\]').replace('`', '\\`')
+            text += f"📝 *Инструкция:*\n\n{solution_text}\n\n"
         
         if has_file:
             text += "📎 *Файл с инструкцией прикреплен ниже*\n\n"

@@ -359,10 +359,21 @@ class WarrantyIssueForm(forms.ModelForm):
         """Очистка и нормализация текста решения"""
         template = self.cleaned_data.get('solution_template')
         if template:
-            # Убеждаемся, что текст правильно кодируется
-            template = template.encode('utf-8').decode('utf-8')
+            # Убеждаемся, что текст правильно кодируется и поддерживает эмодзи
+            try:
+                template = template.encode('utf-8').decode('utf-8')
+            except UnicodeError:
+                # Если есть проблемы с кодировкой, пытаемся исправить
+                template = template.encode('utf-8', errors='ignore').decode('utf-8')
+            
             # Нормализуем переносы строк
             template = template.replace('\r\n', '\n').replace('\r', '\n')
+            
+            # Убираем лишние пробелы в начале и конце строк
+            lines = template.split('\n')
+            cleaned_lines = [line.rstrip() for line in lines]
+            template = '\n'.join(cleaned_lines)
+            
         return template
 
 
