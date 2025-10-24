@@ -1380,6 +1380,10 @@ def chat_with_ai(message):
         if process_support_questionnaire_answer(message):
             return
 
+        # Проверяем, является ли это первым сообщением пользователя после завершения обращения
+        if handle_first_user_message(message):
+            return
+
         # Проверяем, находится ли пользователь в режиме поддержки
         if message.chat.id in support_state:
             # Сначала проверяем, действительно ли обращение активно
@@ -1552,6 +1556,64 @@ def chat_with_ai(message):
         )
         print(f"[ERROR] Ошибка в chat_with_ai: {e}")
         logger.error(f"[ERROR] Ошибка в chat_with_ai: {e}")
+
+
+def handle_first_user_message(message: Message) -> bool:
+    """
+    Обрабатывает первое сообщение пользователя после завершения обращения.
+    Возвращает True, если сообщение обработано, False - если нет.
+    """
+    try:
+        chat_id = message.chat.id
+        user = User.objects.get(telegram_id=chat_id)
+        
+        # Проверяем, есть ли активные обращения
+        from bot.models import SupportTicket, WarrantyRequest
+        
+        # Проверяем активные обращения в поддержке
+        active_support_ticket = SupportTicket.objects.filter(
+            user=user,
+            status__in=['open', 'in_progress']
+        ).first()
+        
+        # Проверяем активные обращения по гарантии
+        active_warranty_request = WarrantyRequest.objects.filter(
+            user=user,
+            status__in=['selecting_product', 'selecting_issue', 'got_solution', 'needs_manager']
+        ).first()
+        
+        if active_support_ticket:
+            # Если есть активное обращение в поддержке, переводим пользователя в его контекст
+            from bot.handlers.support import support_state
+            support_state[chat_id] = {
+                'ticket_id': active_support_ticket.id,
+                'platform': active_support_ticket.platform
+            }
+            
+            # Обрабатываем сообщение как сообщение в поддержке
+            from bot.handlers.support import handle_support_message
+            return handle_support_message(message)
+            
+        elif active_warranty_request:
+            # Если есть активное обращение по гарантии, обрабатываем его
+            from bot.handlers.warranty import warranty_state
+            warranty_state[chat_id] = {
+                'request_id': active_warranty_request.id,
+                'status': active_warranty_request.status
+            }
+            
+            # Обрабатываем сообщение как сообщение по гарантии
+            from bot.handlers.warranty import handle_warranty_message
+            return handle_warranty_message(message)
+        
+        # Если нет активных обращений, сообщение не обрабатывается
+        return False
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка в handle_first_user_message: {e}")
+        logger.error(f"[ERROR] Ошибка в handle_first_user_message: {e}")
+        return False
+
 
 @disable_ai_mode
 def back_to_main(call: CallbackQuery) -> None:

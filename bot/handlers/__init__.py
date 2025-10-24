@@ -9,6 +9,7 @@ from .common import (
     show_product_menu, 
     show_product_info, 
     chat_with_ai,
+    handle_first_user_message,
     back_to_main,
     back_to_categories,
     activate_warranty,

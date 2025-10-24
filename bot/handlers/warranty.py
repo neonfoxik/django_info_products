@@ -1,6 +1,6 @@
 from telebot.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot import bot, logger
-from bot.models import User, goods_category, goods, WarrantyIssue, WarrantyRequest, Support, WarrantyQuestion, WarrantyAnswer
+from bot.models import User, goods_category, goods, TypicalIssue, WarrantyRequest, Support, WarrantyQuestion, WarrantyAnswer
 from bot.handlers.support import warranty_to_support_context
 from bot.keyboards import get_support_platform_markup
 
@@ -214,7 +214,7 @@ def warranty_select_category(call: CallbackQuery) -> None:
         markup = InlineKeyboardMarkup()
         for product in products:
             # Проверяем, есть ли для товара типичные проблемы
-            issues_count = WarrantyIssue.objects.filter(
+            issues_count = TypicalIssue.objects.filter(
                 product=product,
                 is_active=True
             ).count()
@@ -270,7 +270,7 @@ def warranty_select_product(call: CallbackQuery) -> None:
             warranty_request.save()
         
         # Получаем типичные проблемы для товара
-        issues = WarrantyIssue.objects.filter(
+        issues = TypicalIssue.objects.filter(
             product=product,
             is_active=True
         ).order_by('order', 'title')
@@ -330,7 +330,7 @@ def warranty_select_issue(call: CallbackQuery) -> None:
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
         issue_id = int(call.data.split('_')[-1])
-        issue = WarrantyIssue.objects.get(id=issue_id)
+        issue = TypicalIssue.objects.get(id=issue_id)
         
         # Обновляем запрос по гарантии
         warranty_request = WarrantyRequest.objects.filter(

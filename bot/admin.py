@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction, SupportTicket, SupportMessage, OwnerSettings, BroadcastMessage, PromoCode, PromoCodeCategory, WarrantyIssue, WarrantyRequest
+from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction, SupportTicket, SupportMessage, OwnerSettings, BroadcastMessage, PromoCode, PromoCodeCategory, TypicalIssue, WarrantyRequest, WarrantyQuestion, WarrantyAnswer, SupportQuestion, SupportAnswer
 from django import forms
 from django.db import models
 
@@ -333,17 +333,17 @@ admin.site.register(PromoCode, PromoCodeAdmin)
 admin.site.register(PromoCodeCategory, PromoCodeCategoryAdmin)
 
 
-class WarrantyIssueInline(admin.TabularInline):
-    model = WarrantyIssue
+class TypicalIssueInline(admin.TabularInline):
+    model = TypicalIssue
     extra = 1
     fields = ('title', 'order', 'is_active')
     ordering = ('order', 'title')
 
 
-class WarrantyIssueForm(forms.ModelForm):
+class TypicalIssueForm(forms.ModelForm):
     """Специальная форма для правильного отображения текстовых полей"""
     class Meta:
-        model = WarrantyIssue
+        model = TypicalIssue
         fields = '__all__'
         widgets = {
             'solution_template': forms.Textarea(attrs={
@@ -377,18 +377,18 @@ class WarrantyIssueForm(forms.ModelForm):
         return template
 
 
-class WarrantyIssueProductInline(admin.StackedInline):
-    model = WarrantyIssue
+class TypicalIssueProductInline(admin.StackedInline):
+    model = TypicalIssue
     extra = 1
     fields = ('title', 'solution_template', 'solution_file', 'order', 'is_active')
     ordering = ('order', 'title')
     verbose_name = 'Типичная проблема'
     verbose_name_plural = 'Типичные проблемы'
-    form = WarrantyIssueForm
+    form = TypicalIssueForm
 
 
-class WarrantyIssueAdmin(admin.ModelAdmin):
-    form = WarrantyIssueForm
+class TypicalIssueAdmin(admin.ModelAdmin):
+    form = TypicalIssueForm
     list_display = ('title', 'product', 'order', 'is_active', 'created_at')
     list_filter = ('product', 'is_active', 'created_at')
     search_fields = ('title', 'product__name')
@@ -435,7 +435,7 @@ class WarrantyRequestAdmin(admin.ModelAdmin):
     )
 
 
-admin.site.register(WarrantyIssue, WarrantyIssueAdmin)
+admin.site.register(TypicalIssue, TypicalIssueAdmin)
 admin.site.register(WarrantyRequest, WarrantyRequestAdmin)
 
 
@@ -444,7 +444,7 @@ class GoodsAdmin(admin.ModelAdmin):
     list_filter = ('parent_category', 'is_active')
     search_fields = ('name',)
     list_editable = ('is_active', 'extended_warranty')
-    inlines = [ProductImageInline, FAQInline, InstructionInline, WarrantyIssueProductInline]
+    inlines = [ProductImageInline, FAQInline, InstructionInline, TypicalIssueProductInline]
     fieldsets = (
         (None, {
             'fields': ('name', 'parent_category', 'is_active')
@@ -490,3 +490,18 @@ class WarrantyAnswerAdmin(admin.ModelAdmin):
     list_display = ("id", "request", "question", "created_at")
     search_fields = ("answer_text",)
     autocomplete_fields = ("request", "question")
+
+
+@admin.register(SupportQuestion)
+class SupportQuestionAdmin(admin.ModelAdmin):
+    list_display = ("id", "order", "is_active", "text", "created_at", "updated_at")
+    list_filter = ("is_active",)
+    search_fields = ("text",)
+    ordering = ("order", "id")
+
+
+@admin.register(SupportAnswer)
+class SupportAnswerAdmin(admin.ModelAdmin):
+    list_display = ("id", "ticket", "question", "created_at")
+    search_fields = ("answer_text",)
+    autocomplete_fields = ("ticket", "question")

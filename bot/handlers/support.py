@@ -1,7 +1,7 @@
 from telebot.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from django.utils import timezone
 from bot import bot
-from bot.models import User, SupportTicket, SupportMessage, OwnerSettings, WarrantyRequest, WarrantyAnswer, WarrantyQuestion, goods, goods_category, WarrantyIssue
+from bot.models import User, SupportTicket, SupportMessage, OwnerSettings, WarrantyRequest, WarrantyAnswer, WarrantyQuestion, goods, goods_category, TypicalIssue, SupportQuestion, SupportAnswer
 from bot.texts import (
     SUPPORT_WELCOME_TEXT, SUPPORT_OZON_START_TEXT, SUPPORT_WILDBERRIES_START_TEXT,
     SUPPORT_MESSAGE_RECEIVED_TEXT, SUPPORT_TICKET_CLOSED_TEXT,
@@ -399,6 +399,28 @@ def start_support_ozon(call: CallbackQuery) -> None:
             status='open'
         )
         
+        # Создаем ответы на вопросы поддержки, если они есть
+        try:
+            ctx = warranty_to_support_context.get(call.message.chat.id, None)
+            if not ctx:
+                ctx = support_to_support_context.get(call.message.chat.id, None)
+            
+            if ctx and ctx.get('answers'):
+                for question_text, answer_text in ctx['answers']:
+                    # Находим вопрос по тексту
+                    try:
+                        question = SupportQuestion.objects.get(text=question_text, is_active=True)
+                        SupportAnswer.objects.create(
+                            ticket=ticket,
+                            question=question,
+                            answer_text=answer_text
+                        )
+                    except SupportQuestion.DoesNotExist:
+                        logger.warning(f"Вопрос поддержки не найден: {question_text}")
+        except Exception as e:
+            logger.error(f"Ошибка создания ответов на вопросы поддержки: {e}")
+        
+        
         # Уведомляем админов о новом обращении сразу после его создания
         try:
             notify_admins_about_new_ticket(ticket)
@@ -493,6 +515,28 @@ def start_support_wildberries(call: CallbackQuery) -> None:
             platform='wildberries',
             status='open'
         )
+        
+        # Создаем ответы на вопросы поддержки, если они есть
+        try:
+            ctx = warranty_to_support_context.get(call.message.chat.id, None)
+            if not ctx:
+                ctx = support_to_support_context.get(call.message.chat.id, None)
+            
+            if ctx and ctx.get('answers'):
+                for question_text, answer_text in ctx['answers']:
+                    # Находим вопрос по тексту
+                    try:
+                        question = SupportQuestion.objects.get(text=question_text, is_active=True)
+                        SupportAnswer.objects.create(
+                            ticket=ticket,
+                            question=question,
+                            answer_text=answer_text
+                        )
+                    except SupportQuestion.DoesNotExist:
+                        logger.warning(f"Вопрос поддержки не найден: {question_text}")
+        except Exception as e:
+            logger.error(f"Ошибка создания ответов на вопросы поддержки: {e}")
+        
         
         # Уведомляем админов о новом обращении сразу после его создания
         try:
@@ -1002,6 +1046,15 @@ def view_ticket_details(call: CallbackQuery) -> None:
         if ticket.assigned_admin:
             message_history += f"👨‍💼 Назначенный админ: {ticket.assigned_admin.user_name}\n\n"
         
+        # Добавляем ответы на вопросы поддержки
+        support_answers = SupportAnswer.objects.filter(ticket=ticket).select_related('question').order_by('created_at')
+        if support_answers.exists():
+            message_history += "📝 Ответы на вопросы поддержки:\n"
+            for answer in support_answers:
+                message_history += f"❓ {answer.question.text}\n"
+                message_history += f"💬 Ответ: {answer.answer_text}\n\n"
+        
+        
         message_history += "💬 История сообщений:\n"
         
         for msg in messages:
@@ -1507,7 +1560,7 @@ def _notify_admins_user_continues(ticket: SupportTicket) -> None:
 
 def _start_support_questionnaire(user: User, support_request: dict, chat_id: int) -> None:
     """Начинает анкету поддержки с первым вопросом."""
-    questions = WarrantyQuestion.objects.filter(is_active=True).order_by('order')
+    questions = SupportQuestion.objects.filter(is_active=True).order_by('order')
     if not questions.exists():
         _finish_support_questionnaire_and_ask_platform(user, support_request, chat_id)
         return
@@ -1543,7 +1596,8 @@ def _finish_support_questionnaire_and_ask_platform(user: User, support_request: 
     except Exception:
         pass
     support_to_support_context[chat_id] = {
-        'text': "\n".join(details)
+        'text': "\n".join(details),
+        'answers': support_request.get('answers', [])
     }
     bot.send_message(
         chat_id=chat_id,
@@ -1761,7 +1815,7 @@ def support_select_product(call: CallbackQuery) -> None:
         }
         
         # Получаем типичные проблемы для товара
-        issues = WarrantyIssue.objects.filter(
+        issues = TypicalIssue.objects.filter(
             product=product,
             is_active=True
         ).order_by('order', 'title')
@@ -1820,7 +1874,7 @@ def support_select_issue(call: CallbackQuery) -> None:
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
         issue_id = int(call.data.split('_')[-1])
-        issue = WarrantyIssue.objects.get(id=issue_id)
+        issue = TypicalIssue.objects.get(id=issue_id)
         
         # Создаем контекст для поддержки
         support_request = {
@@ -1899,7 +1953,7 @@ def support_helped(call: CallbackQuery) -> None:
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
         issue_id = int(call.data.split('_')[-1])
-        issue = WarrantyIssue.objects.get(id=issue_id)
+        issue = TypicalIssue.objects.get(id=issue_id)
         
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main"))
@@ -1931,7 +1985,7 @@ def support_not_helped(call: CallbackQuery) -> None:
     try:
         user = User.objects.get(telegram_id=call.message.chat.id)
         issue_id = int(call.data.split('_')[-1])
-        issue = WarrantyIssue.objects.get(id=issue_id)
+        issue = TypicalIssue.objects.get(id=issue_id)
         
         # Удаляем старое сообщение
         try:
@@ -1947,7 +2001,7 @@ def support_not_helped(call: CallbackQuery) -> None:
         }
         
         # Проверяем, есть ли активные вопросы
-        questions = WarrantyQuestion.objects.filter(is_active=True).order_by('order')
+        questions = SupportQuestion.objects.filter(is_active=True).order_by('order')
         if questions.exists():
             # Начинаем анкету
             _start_support_questionnaire(user, support_request, call.message.chat.id)
@@ -1982,7 +2036,7 @@ def support_other(call: CallbackQuery) -> None:
         }
         
         # Проверяем, есть ли активные вопросы
-        questions = WarrantyQuestion.objects.filter(is_active=True).order_by('order')
+        questions = SupportQuestion.objects.filter(is_active=True).order_by('order')
         if questions.exists():
             # Начинаем анкету
             _start_support_questionnaire(user, support_request, call.message.chat.id)

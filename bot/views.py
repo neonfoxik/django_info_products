@@ -17,6 +17,7 @@ from bot.handlers import (
     start, menu_call, back_to_main, 
     show_categories, show_category_products, show_product_menu, show_product_info,
     chat_with_ai, activate_warranty, back_to_categories,
+    handle_first_user_message,
     cancel_warranty_activation, show_my_warranties, check_screenshot,
     confirm_review, cancel_review, send_excel_to_admin, admin_command,
     show_warranty_cases, handle_warranty_case, send_instruction_pdf,
