@@ -1103,13 +1103,34 @@ def view_ticket_details(call: CallbackQuery) -> None:
             except Exception:
                 pass
         else:
-            # Если админ не назначен, предлагаем принять/отказаться
-            from bot.keyboards import get_admin_ticket_decision_markup
+            # Создаем клавиатуру с кнопками действий
+            markup = InlineKeyboardMarkup()
+            
+            # Кнопка перехвата обращения
+            markup.add(InlineKeyboardButton(
+                "🔄 Перехватить обращение",
+                callback_data=f"takeover_ticket_{ticket_id}"
+            ))
+            
+            # Кнопка получения файлов
+            has_files = SupportMessage.objects.filter(ticket=ticket).exclude(content_type='text').exists()
+            if has_files:
+                markup.add(InlineKeyboardButton(
+                    "📎 Получить все файлы",
+                    callback_data=f"get_all_ticket_files_{ticket_id}"
+                ))
+            
+            # Кнопка назад к списку обращений
+            markup.add(InlineKeyboardButton(
+                "⬅️ К списку обращений",
+                callback_data="admin_back_to_tickets"
+            ))
+            
             bot.edit_message_text(
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
                 text=message_history,
-                reply_markup=get_admin_ticket_decision_markup(ticket_id)
+                reply_markup=markup
             )
             try:
                 _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
