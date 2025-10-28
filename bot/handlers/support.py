@@ -1,7 +1,7 @@
 from telebot.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from django.utils import timezone
 from bot import bot
-from bot.models import User, SupportTicket, SupportMessage, OwnerSettings, WarrantyRequest, WarrantyAnswer, WarrantyQuestion, goods, goods_category, TypicalIssue, SupportQuestion, SupportAnswer
+from bot.models import User, SupportTicket, SupportMessage, OwnerSettings, WarrantyRequest, WarrantyAnswer, goods, goods_category, TypicalIssue, ProductSupportQuestion, ProductWarrantyQuestion, SupportAnswer
 from bot.texts import (
     SUPPORT_WELCOME_TEXT, SUPPORT_OZON_START_TEXT, SUPPORT_WILDBERRIES_START_TEXT,
     SUPPORT_MESSAGE_RECEIVED_TEXT, SUPPORT_TICKET_CLOSED_TEXT,
@@ -409,13 +409,13 @@ def start_support_ozon(call: CallbackQuery) -> None:
                 for question_text, answer_text in ctx['answers']:
                     # Находим вопрос по тексту
                     try:
-                        question = SupportQuestion.objects.get(text=question_text, is_active=True)
+                        question = ProductSupportQuestion.objects.get(product=support_request['product'], text=question_text, is_active=True)
                         SupportAnswer.objects.create(
                             ticket=ticket,
                             question=question,
                             answer_text=answer_text
                         )
-                    except SupportQuestion.DoesNotExist:
+                    except ProductSupportQuestion.DoesNotExist:
                         logger.warning(f"Вопрос поддержки не найден: {question_text}")
         except Exception as e:
             logger.error(f"Ошибка создания ответов на вопросы поддержки: {e}")
@@ -526,13 +526,13 @@ def start_support_wildberries(call: CallbackQuery) -> None:
                 for question_text, answer_text in ctx['answers']:
                     # Находим вопрос по тексту
                     try:
-                        question = SupportQuestion.objects.get(text=question_text, is_active=True)
+                        question = ProductSupportQuestion.objects.get(product=support_request['product'], text=question_text, is_active=True)
                         SupportAnswer.objects.create(
                             ticket=ticket,
                             question=question,
                             answer_text=answer_text
                         )
-                    except SupportQuestion.DoesNotExist:
+                    except ProductSupportQuestion.DoesNotExist:
                         logger.warning(f"Вопрос поддержки не найден: {question_text}")
         except Exception as e:
             logger.error(f"Ошибка создания ответов на вопросы поддержки: {e}")
@@ -1560,7 +1560,7 @@ def _notify_admins_user_continues(ticket: SupportTicket) -> None:
 
 def _start_support_questionnaire(user: User, support_request: dict, chat_id: int) -> None:
     """Начинает анкету поддержки с первым вопросом."""
-    questions = SupportQuestion.objects.filter(is_active=True).order_by('order')
+    questions = ProductSupportQuestion.objects.filter(product=support_request['product'], is_active=True).order_by('order')
     if not questions.exists():
         _finish_support_questionnaire_and_ask_platform(user, support_request, chat_id)
         return
@@ -2001,7 +2001,7 @@ def support_not_helped(call: CallbackQuery) -> None:
         }
         
         # Проверяем, есть ли активные вопросы
-        questions = SupportQuestion.objects.filter(is_active=True).order_by('order')
+        questions = ProductSupportQuestion.objects.filter(product=support_request['product'], is_active=True).order_by('order')
         if questions.exists():
             # Начинаем анкету
             _start_support_questionnaire(user, support_request, call.message.chat.id)
@@ -2036,7 +2036,7 @@ def support_other(call: CallbackQuery) -> None:
         }
         
         # Проверяем, есть ли активные вопросы
-        questions = SupportQuestion.objects.filter(is_active=True).order_by('order')
+        questions = ProductSupportQuestion.objects.filter(product=support_request['product'], is_active=True).order_by('order')
         if questions.exists():
             # Начинаем анкету
             _start_support_questionnaire(user, support_request, call.message.chat.id)

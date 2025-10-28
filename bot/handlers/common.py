@@ -6,7 +6,7 @@ from bot.texts import WARRANTY_CONDITIONS_TEXT
 from bot.keyboards import main_markup, back_to_main_markup, get_product_menu_markup, get_main_markup_for_user
 from bot.keyboards import get_screenshot_markup, get_warranty_main_menu_markup
 from .registration import start_registration
-from bot.models import goods, goods_category, User, Support, FAQ, Instruction
+from bot.models import goods, goods_category, User, Support, FAQ, Instruction, TypicalIssue
 from .support import (
     show_support_menu, start_support_ozon, start_support_wildberries,
     handle_support_message, close_support_ticket, accept_support_ticket,
@@ -480,7 +480,7 @@ def show_product_info(call: CallbackQuery) -> None:
         product_id = int(parts[1])
         
         # Проверяем, что тип информации валидный
-        if info_type not in ['instructions', 'faq']:
+        if info_type not in ['instructions', 'faq', 'issues']:
             raise ValueError(f"Неизвестный тип информации: {info_type}")
         
         product = goods.objects.get(id=product_id)
@@ -575,8 +575,50 @@ def show_product_info(call: CallbackQuery) -> None:
                 text = f"❓ Часто задаваемые вопросы о {product.name} отсутствуют."
                 bot.send_message(
                     chat_id=call.message.chat.id,
-                                    text=text,
-                reply_markup=markup
+                    text=text,
+                    reply_markup=markup
+                )
+        elif info_type == "issues":
+            # Получаем все активные типичные проблемы для товара
+            issues = TypicalIssue.objects.filter(
+                product=product, 
+                is_active=True
+            ).order_by('order', 'title')
+            
+            if issues.exists():
+                # Создаем клавиатуру с проблемами
+                markup = InlineKeyboardMarkup()
+                
+                for issue in issues:
+                    btn = InlineKeyboardButton(
+                        f"⚠️ {issue.title}",
+                        callback_data=f"warranty_issue_{issue.id}"
+                    )
+                    markup.add(btn)
+                
+                # Добавляем кнопку "Другое"
+                other_btn = InlineKeyboardButton(
+                    "❓ Другое",
+                    callback_data=f"warranty_other_{product_id}"
+                )
+                markup.add(other_btn)
+                
+                # Добавляем кнопку назад
+                back_btn = InlineKeyboardButton("⬅️ Назад", callback_data=f"product_{product_id}")
+                markup.add(back_btn)
+                
+                text = f"⚠️ Типичные проблемы для товара {product.name}:\n\nВыберите проблему, с которой вы столкнулись:"
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text=text,
+                    reply_markup=markup
+                )
+            else:
+                text = f"⚠️ Типичные проблемы для товара {product.name} отсутствуют."
+                bot.send_message(
+                    chat_id=call.message.chat.id,
+                    text=text,
+                    reply_markup=markup
                 )
         else:
             return

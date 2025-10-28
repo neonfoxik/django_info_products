@@ -1,6 +1,6 @@
 from telebot.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from bot import bot, logger
-from bot.models import User, goods_category, goods, TypicalIssue, WarrantyRequest, Support, WarrantyQuestion, WarrantyAnswer
+from bot.models import User, goods_category, goods, TypicalIssue, WarrantyRequest, Support, ProductWarrantyQuestion, WarrantyAnswer
 from bot.handlers.support import warranty_to_support_context
 from bot.keyboards import get_support_platform_markup
 
@@ -13,7 +13,7 @@ warranty_qna_state = {}
 
 def _start_warranty_questionnaire(user: User, warranty_request: WarrantyRequest, chat_id: int) -> None:
     """Запускает опрос активных вопросов. Если вопросов нет — сразу переводит к выбору платформы."""
-    questions = list(WarrantyQuestion.objects.filter(is_active=True).order_by('order','id'))
+    questions = list(ProductWarrantyQuestion.objects.filter(product=warranty_request.product, is_active=True).order_by('order','id'))
     if not questions:
         _finish_questionnaire_and_ask_platform(user, warranty_request, chat_id)
         return
@@ -72,7 +72,7 @@ def process_warranty_questionnaire_answer(message: Message) -> bool:
         idx = state['index']
         # Текущий вопрос
         current_q_id = q_ids[idx]
-        question = WarrantyQuestion.objects.get(id=current_q_id)
+        question = ProductWarrantyQuestion.objects.get(id=current_q_id)
         # Сохраняем ответ
         WarrantyAnswer.objects.update_or_create(
             request=warranty_request,
@@ -83,7 +83,7 @@ def process_warranty_questionnaire_answer(message: Message) -> bool:
         idx += 1
         if idx < len(q_ids):
             state['index'] = idx
-            next_q = WarrantyQuestion.objects.get(id=q_ids[idx])
+            next_q = ProductWarrantyQuestion.objects.get(id=q_ids[idx])
             bot.send_message(chat_id=chat_id, text=f"❓ {next_q.text}")
             return True
         else:

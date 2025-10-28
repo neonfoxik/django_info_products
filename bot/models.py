@@ -138,6 +138,11 @@ class goods_category(models.Model):
         max_length=100,
         verbose_name='Название категории'
     )
+    is_hidden = models.BooleanField(
+        default=False,
+        verbose_name='Скрыть из бота',
+        help_text='Если включено, категория не будет отображаться в боте, но останется в админке'
+    )
     def __str__(self):
         return str(self.name)
 
@@ -785,37 +790,6 @@ class WarrantyRequest(models.Model):
         ordering = ['-created_at']
 
 
-class WarrantyQuestion(models.Model):
-    """Глобальные вопросы, задаваемые пользователю при оформлении гарантийного случая"""
-    text = models.TextField(
-        verbose_name='Текст вопроса'
-    )
-    order = models.PositiveIntegerField(
-        default=0,
-        verbose_name='Порядок'
-    )
-    is_active = models.BooleanField(
-        default=True,
-        verbose_name='Активен'
-    )
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name='Дата создания'
-    )
-    updated_at = models.DateTimeField(
-        auto_now=True,
-        verbose_name='Дата обновления'
-    )
-
-    def __str__(self):
-        return f"Q{self.id}: {self.text[:50]}"
-
-    class Meta:
-        verbose_name = 'Вопрос гарантии'
-        verbose_name_plural = 'Вопросы гарантии'
-        ordering = ['order', 'id']
-
-
 class WarrantyAnswer(models.Model):
     """Ответ пользователя на вопрос в рамках конкретного WarrantyRequest"""
     request = models.ForeignKey(
@@ -825,7 +799,7 @@ class WarrantyAnswer(models.Model):
         verbose_name='Гарантийное обращение'
     )
     question = models.ForeignKey(
-        WarrantyQuestion,
+        'ProductWarrantyQuestion',
         on_delete=models.CASCADE,
         verbose_name='Вопрос'
     )
@@ -845,8 +819,43 @@ class WarrantyAnswer(models.Model):
         verbose_name_plural = 'Ответы на вопросы гарантии'
 
 
-class SupportQuestion(models.Model):
-    """Глобальные вопросы, задаваемые пользователю при оформлении обращения в поддержку"""
+class SupportAnswer(models.Model):
+    """Ответ пользователя на вопрос в рамках конкретного SupportTicket"""
+    ticket = models.ForeignKey(
+        SupportTicket,
+        on_delete=models.CASCADE,
+        related_name='answers',
+        verbose_name='Обращение в поддержку'
+    )
+    question = models.ForeignKey(
+        'ProductSupportQuestion',
+        on_delete=models.CASCADE,
+        verbose_name='Вопрос'
+    )
+    answer_text = models.TextField(
+        verbose_name='Ответ пользователя'
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Дата создания'
+    )
+
+    def __str__(self):
+        return f"Тикет #{self.ticket_id} — Q{self.question_id}"
+
+    class Meta:
+        verbose_name = 'Ответ на вопрос поддержки'
+        verbose_name_plural = 'Ответы на вопросы поддержки'
+
+
+class ProductSupportQuestion(models.Model):
+    """Вопросы поддержки, специфичные для конкретного товара"""
+    product = models.ForeignKey(
+        'goods',
+        on_delete=models.CASCADE,
+        related_name='support_questions',
+        verbose_name='Товар'
+    )
     text = models.TextField(
         verbose_name='Текст вопроса'
     )
@@ -868,38 +877,46 @@ class SupportQuestion(models.Model):
     )
 
     def __str__(self):
-        return f"Q{self.id}: {self.text[:50]}"
+        return f"{self.product.name} - Q{self.id}: {self.text[:50]}"
 
     class Meta:
-        verbose_name = 'Вопрос поддержки'
-        verbose_name_plural = 'Вопросы поддержки'
-        ordering = ['order', 'id']
+        verbose_name = 'Вопрос поддержки товара'
+        verbose_name_plural = 'Вопросы поддержки товаров'
+        ordering = ['product', 'order', 'id']
 
 
-class SupportAnswer(models.Model):
-    """Ответ пользователя на вопрос в рамках конкретного SupportTicket"""
-    ticket = models.ForeignKey(
-        SupportTicket,
+class ProductWarrantyQuestion(models.Model):
+    """Вопросы гарантии, специфичные для конкретного товара"""
+    product = models.ForeignKey(
+        'goods',
         on_delete=models.CASCADE,
-        related_name='answers',
-        verbose_name='Обращение в поддержку'
+        related_name='warranty_questions',
+        verbose_name='Товар'
     )
-    question = models.ForeignKey(
-        SupportQuestion,
-        on_delete=models.CASCADE,
-        verbose_name='Вопрос'
+    text = models.TextField(
+        verbose_name='Текст вопроса'
     )
-    answer_text = models.TextField(
-        verbose_name='Ответ пользователя'
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name='Порядок'
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='Активен'
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name='Дата создания'
     )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='Дата обновления'
+    )
 
     def __str__(self):
-        return f"Тикет #{self.ticket_id} — Q{self.question_id}"
+        return f"{self.product.name} - Q{self.id}: {self.text[:50]}"
 
     class Meta:
-        verbose_name = 'Ответ на вопрос поддержки'
-        verbose_name_plural = 'Ответы на вопросы поддержки'
+        verbose_name = 'Вопрос гарантии товара'
+        verbose_name_plural = 'Вопросы гарантии товаров'
+        ordering = ['product', 'order', 'id']

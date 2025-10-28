@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction, SupportTicket, SupportMessage, OwnerSettings, BroadcastMessage, PromoCode, PromoCodeCategory, TypicalIssue, WarrantyRequest, WarrantyQuestion, WarrantyAnswer, SupportQuestion, SupportAnswer
+from .models import User, goods_category, goods, ProductImage, Support, FAQ, Instruction, SupportTicket, SupportMessage, OwnerSettings, BroadcastMessage, PromoCode, PromoCodeCategory, TypicalIssue, WarrantyRequest, WarrantyAnswer, SupportAnswer, ProductWarrantyQuestion, ProductSupportQuestion
 from django import forms
 from django.db import models
 
@@ -387,6 +387,24 @@ class TypicalIssueProductInline(admin.StackedInline):
     form = TypicalIssueForm
 
 
+class ProductWarrantyQuestionInline(admin.StackedInline):
+    model = ProductWarrantyQuestion
+    extra = 1
+    fields = ('text', 'order', 'is_active')
+    ordering = ('order',)
+    verbose_name = 'Вопрос гарантии'
+    verbose_name_plural = 'Вопросы гарантии'
+
+
+class ProductSupportQuestionInline(admin.StackedInline):
+    model = ProductSupportQuestion
+    extra = 1
+    fields = ('text', 'order', 'is_active')
+    ordering = ('order',)
+    verbose_name = 'Вопрос поддержки'
+    verbose_name_plural = 'Вопросы поддержки'
+
+
 class TypicalIssueAdmin(admin.ModelAdmin):
     form = TypicalIssueForm
     list_display = ('title', 'product', 'order', 'is_active', 'created_at')
@@ -444,7 +462,7 @@ class GoodsAdmin(admin.ModelAdmin):
     list_filter = ('parent_category', 'is_active')
     search_fields = ('name',)
     list_editable = ('is_active', 'extended_warranty')
-    inlines = [ProductImageInline, FAQInline, InstructionInline, TypicalIssueProductInline]
+    inlines = [ProductImageInline, FAQInline, InstructionInline, TypicalIssueProductInline, ProductWarrantyQuestionInline, ProductSupportQuestionInline]
     fieldsets = (
         (None, {
             'fields': ('name', 'parent_category', 'is_active')
@@ -475,15 +493,12 @@ admin.site.register(SupportTicket, SupportTicketAdmin)
 admin.site.register(SupportMessage, SupportMessageAdmin)
 admin.site.register(OwnerSettings, OwnerSettingsAdmin)
 
-# Новые модели вопросов/ответов гарантии
-from .models import WarrantyQuestion, WarrantyAnswer
-
-@admin.register(WarrantyQuestion)
-class WarrantyQuestionAdmin(admin.ModelAdmin):
-    list_display = ("id", "order", "is_active", "text", "created_at", "updated_at")
-    list_filter = ("is_active",)
-    search_fields = ("text",)
-    ordering = ("order", "id")
+@admin.register(ProductWarrantyQuestion)
+class ProductWarrantyQuestionAdmin(admin.ModelAdmin):
+    list_display = ("id", "product", "order", "is_active", "text", "created_at", "updated_at")
+    list_filter = ("product", "is_active")
+    search_fields = ("text", "product__name")
+    ordering = ("product", "order", "id")
 
 @admin.register(WarrantyAnswer)
 class WarrantyAnswerAdmin(admin.ModelAdmin):
@@ -491,14 +506,12 @@ class WarrantyAnswerAdmin(admin.ModelAdmin):
     search_fields = ("answer_text",)
     autocomplete_fields = ("request", "question")
 
-
-@admin.register(SupportQuestion)
-class SupportQuestionAdmin(admin.ModelAdmin):
-    list_display = ("id", "order", "is_active", "text", "created_at", "updated_at")
-    list_filter = ("is_active",)
-    search_fields = ("text",)
-    ordering = ("order", "id")
-
+@admin.register(ProductSupportQuestion)
+class ProductSupportQuestionAdmin(admin.ModelAdmin):
+    list_display = ("id", "product", "order", "is_active", "text", "created_at", "updated_at")
+    list_filter = ("product", "is_active")
+    search_fields = ("text", "product__name")
+    ordering = ("product", "order", "id")
 
 @admin.register(SupportAnswer)
 class SupportAnswerAdmin(admin.ModelAdmin):

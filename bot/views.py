@@ -215,6 +215,7 @@ warranty_other_handler = bot.callback_query_handler(lambda c: c.data.startswith(
 # Обработчики для информации о товаре
 instructions_handler = bot.callback_query_handler(lambda c: c.data.startswith("instructions_"))(show_product_info)
 faq_handler = bot.callback_query_handler(lambda c: c.data.startswith("faq_"))(show_product_info)
+issues_handler = bot.callback_query_handler(lambda c: c.data.startswith("issues_"))(show_product_info)
 warranty_info_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_") and not c.data.startswith("warranty_main") and not c.data.startswith("warranty_conditions") and not c.data.startswith("warranty_activation") and not c.data.startswith("warranty_case") and c.data != "warranty_cases" and c.data != "warranty_start" and not c.data.startswith("warranty_category_") and not c.data.startswith("warranty_product_") and not c.data.startswith("warranty_issue_") and not c.data.startswith("warranty_helped_") and not c.data.startswith("warranty_not_helped_") and not c.data.startswith("warranty_other_"))(show_product_info)
 support_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_") and c.data.split('_')[1].isdigit())(show_product_info)
 
@@ -282,7 +283,7 @@ support_admin_decline_handler = bot.callback_query_handler(lambda c: c.data.star
 # Админ: список свободных активных обращений
 admin_open_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_open_tickets")(admin_list_open_tickets)
 admin_in_progress_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_in_progress_tickets")(admin_list_in_progress_tickets)
-from bot.handlers.common import admin_panel as admin_panel_cb
+from bot.handlers.common import admin_panel as admin_panel_cb, show_product_info
 admin_panel_back_handler = bot.callback_query_handler(lambda c: c.data == "admin_panel")(admin_panel_cb)
 admin_my_tickets_handler = bot.callback_query_handler(lambda c: c.data == "admin_my_tickets")(admin_list_my_tickets)
 
