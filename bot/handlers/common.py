@@ -29,7 +29,6 @@ from django.utils import timezone
 from django.conf import settings
 from bot.utils.excel_handler import WarrantyExcelHandler
 from telebot import TeleBot
-from telebot.apihelper import ApiTelegramException
 import re
 from collections import defaultdict
 
@@ -642,205 +641,67 @@ def show_product_info(call: CallbackQuery) -> None:
 @disable_ai_mode
 def activate_warranty(call: CallbackQuery) -> None:
     """Начинает процесс активации расширенной гарантии"""
-    # ВАЖНО: Отвечаем на callback query СРАЗУ, до любых других операций
-    # Telegram требует быстрый ответ на callback query (в течение ~2 секунд)
-    callback_answered = False
     try:
-        bot.answer_callback_query(call.id, show_alert=False)
-        callback_answered = True
-        print(f"[LOG] Callback query {call.id} обработан сразу для пользователя {call.message.chat.id if call.message else 'unknown'}")
-    except ApiTelegramException as api_error:
-        # Специфичная обработка ошибок Telegram API
-        error_code = getattr(api_error, 'error_code', None)
-        error_description = str(api_error)
-        print(f"[ERROR] Telegram API ошибка при ответе на callback {call.id}: {error_code} - {error_description}")
-        logger.error(f"[ERROR] Telegram API ошибка при ответе на callback {call.id}: {error_code} - {error_description}")
-        # Если callback query уже истек или обработан, это не критично
-        if error_code not in [400, 409]:  # 400 - Bad Request, 409 - Conflict (уже обработан)
-            callback_answered = True  # Помечаем как обработанный, чтобы не пытаться повторно
-    except Exception as answer_error:
-        print(f"[WARNING] Не удалось сразу ответить на callback query {call.id}: {answer_error}")
-        logger.warning(f"[WARNING] Не удалось сразу ответить на callback query {call.id}: {answer_error}")
-        logger.warning(traceback.format_exc())
-    
-    try:
-        # Проверяем наличие сообщения
-        if not call.message:
-            print(f"[ERROR] call.message отсутствует для callback {call.id}")
-            logger.error(f"[ERROR] call.message отсутствует для callback {call.id}")
-            if not callback_answered:
-                try:
-                    bot.answer_callback_query(call.id, "Ошибка: сообщение не найдено. Попробуйте позже.")
-                except Exception:
-                    pass
-            return
-        
         parts = call.data.split('_')
         if len(parts) != 3:
             raise ValueError("Неверный формат callback_data")
         product_id = int(parts[2])
-        chat_id = call.message.chat.id
-        
-        print(f"[LOG] Запрос на активацию гарантии от пользователя {chat_id} для товара {product_id}")
-        logger.info(f"[LOG] Запрос на активацию гарантии от пользователя {chat_id} для товара {product_id}")
+        print(f"[LOG] Запрос на активацию гарантии от пользователя {call.message.chat.id} для товара {product_id}")
+        logger.info(f"[LOG] Запрос на активацию гарантии от пользователя {call.message.chat.id} для товара {product_id}")
         
         product = goods.objects.get(id=product_id)
         
         # Сохраняем состояние активации гарантии
-        warranty_activation_state[chat_id] = {
+        warranty_activation_state[call.message.chat.id] = {
             'product_id': product_id,
             'waiting_for_screenshot': True
         }
         
-        print(f"[LOG] Состояние ожидания скриншота установлено для пользователя {chat_id}")
-        logger.info(f"[LOG] Состояние ожидания скриншота установлено для пользователя {chat_id}")
+        print(f"[LOG] Состояние ожидания скриншота установлено для пользователя {call.message.chat.id}")
+        logger.info(f"[LOG] Состояние ожидания скриншота установлено для пользователя {call.message.chat.id}")
         
         markup = get_screenshot_markup(product_id)
         
-        # Пытаемся отредактировать сообщение, если не получается - отправляем новое
-        try:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=call.message.message_id,
-                text=SEND_SCREENSHOT,
-                reply_markup=markup
-            )
-            print(f"[LOG] Сообщение успешно отредактировано для пользователя {chat_id}")
-        except ApiTelegramException as api_error:
-            # Обработка специфичных ошибок Telegram API
-            error_code = getattr(api_error, 'error_code', None)
-            error_description = str(api_error)
-            print(f"[WARNING] Telegram API ошибка при редактировании сообщения для пользователя {chat_id}: {error_code} - {error_description}")
-            logger.warning(f"[WARNING] Telegram API ошибка при редактировании сообщения для пользователя {chat_id}: {error_code} - {error_description}")
-            # Пытаемся отправить новое сообщение
-            try:
-                bot.send_message(
-                    chat_id=chat_id,
-                    text=SEND_SCREENSHOT,
-                    reply_markup=markup
-                )
-                print(f"[LOG] Новое сообщение отправлено пользователю {chat_id} вместо редактирования")
-            except Exception as send_error:
-                print(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
-                logger.error(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
-                if not callback_answered:
-                    try:
-                        bot.answer_callback_query(call.id, "Произошла ошибка при отправке сообщения. Попробуйте позже.")
-                    except Exception:
-                        pass
-                return
-        except Exception as edit_error:
-            # Если редактирование не удалось (например, сообщение уже было отредактировано или удалено), отправляем новое сообщение
-            print(f"[WARNING] Не удалось отредактировать сообщение для пользователя {chat_id}: {edit_error}")
-            logger.warning(f"[WARNING] Не удалось отредактировать сообщение для пользователя {chat_id}: {edit_error}")
-            try:
-                bot.send_message(
-                    chat_id=chat_id,
-                    text=SEND_SCREENSHOT,
-                    reply_markup=markup
-                )
-                print(f"[LOG] Новое сообщение отправлено пользователю {chat_id}")
-            except Exception as send_error:
-                print(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
-                logger.error(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
-                if not callback_answered:
-                    try:
-                        bot.answer_callback_query(call.id, "Произошла ошибка при отправке сообщения. Попробуйте позже.")
-                    except Exception:
-                        pass
-                return
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=SEND_SCREENSHOT,
+            reply_markup=markup
+        )
         
-        print(f"[LOG] Пользователю {chat_id} отправлен запрос на скриншот")
-        logger.info(f"[LOG] Пользователю {chat_id} отправлен запрос на скриншот")
-        
-    except goods.DoesNotExist:
-        error_msg = "Товар не найден. Возможно, он был удален."
-        product_id_str = str(product_id) if 'product_id' in locals() else "неизвестный"
-        print(f"[ERROR] {error_msg} для товара {product_id_str}")
-        logger.error(f"[ERROR] {error_msg} для товара {product_id_str}")
-        if not callback_answered:
-            try:
-                bot.answer_callback_query(call.id, error_msg)
-            except Exception:
-                pass
-    except ValueError as e:
-        error_msg = f"Неверный формат запроса: {str(e)}"
-        print(f"[ERROR] {error_msg}")
-        logger.error(f"[ERROR] {error_msg}")
-        if not callback_answered:
-            try:
-                bot.answer_callback_query(call.id, "Неверный формат запроса. Попробуйте позже.")
-            except Exception:
-                pass
+        print(f"[LOG] Пользователю {call.message.chat.id} отправлен запрос на скриншот")
+        logger.info(f"[LOG] Пользователю {call.message.chat.id} отправлен запрос на скриншот")
     except Exception as e:
-        error_msg = f"Ошибка при запуске активации гарантии: {e}"
-        print(f"[ERROR] {error_msg}")
-        logger.error(f"[ERROR] {error_msg}")
-        logger.error(traceback.format_exc())
-        if not callback_answered:
-            try:
-                bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
-            except Exception:
-                pass
+        print(f"[ERROR] Ошибка при запуске активации гарантии: {e}")
+        logger.error(f"[ERROR] Ошибка при запуске активации гарантии: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
 
 @disable_ai_mode
 def cancel_warranty_activation(call: CallbackQuery) -> None:
     """Отменяет процесс активации расширенной гарантии"""
     try:
-        # Проверяем наличие сообщения
-        if not call.message:
-            print(f"[ERROR] call.message отсутствует для callback {call.id}")
-            logger.error(f"[ERROR] call.message отсутствует для callback {call.id}")
-            try:
-                bot.answer_callback_query(call.id, "Ошибка: сообщение не найдено. Попробуйте позже.")
-            except Exception:
-                pass
-            return
-        
         parts = call.data.split('_')
         if len(parts) != 3:
             raise ValueError("Неверный формат callback_data")
         product_id = int(parts[2])
-        chat_id = call.message.chat.id
-        
-        print(f"[LOG] Отмена активации гарантии пользователем {chat_id} для товара {product_id}")
-        logger.info(f"[LOG] Отмена активации гарантии пользователем {chat_id} для товара {product_id}")
+        print(f"[LOG] Отмена активации гарантии пользователем {call.message.chat.id} для товара {product_id}")
+        logger.info(f"[LOG] Отмена активации гарантии пользователем {call.message.chat.id} для товара {product_id}")
         
         # Удаляем состояние активации
-        if chat_id in warranty_activation_state:
-            del warranty_activation_state[chat_id]
-            print(f"[LOG] Состояние ожидания скриншота удалено для пользователя {chat_id}")
-            logger.info(f"[LOG] Состояние ожидания скриншота удалено для пользователя {chat_id}")
+        if call.message.chat.id in warranty_activation_state:
+            del warranty_activation_state[call.message.chat.id]
+            print(f"[LOG] Состояние ожидания скриншота удалено для пользователя {call.message.chat.id}")
+            logger.info(f"[LOG] Состояние ожидания скриншота удалено для пользователя {call.message.chat.id}")
         
         # Возвращаемся к информации о товаре
         show_product_menu(call)
         
-        # Отвечаем на callback query при успешном выполнении
-        try:
-            bot.answer_callback_query(call.id)
-        except Exception as answer_error:
-            print(f"[WARNING] Не удалось ответить на callback query {call.id}: {answer_error}")
-            logger.warning(f"[WARNING] Не удалось ответить на callback query {call.id}: {answer_error}")
-        
-        print(f"[LOG] Пользователь {chat_id} возвращен в меню товара {product_id}")
-        logger.info(f"[LOG] Пользователь {chat_id} возвращен в меню товара {product_id}")
-    except ValueError as e:
-        error_msg = f"Неверный формат запроса: {str(e)}"
-        print(f"[ERROR] {error_msg}")
-        logger.error(f"[ERROR] {error_msg}")
-        try:
-            bot.answer_callback_query(call.id, "Неверный формат запроса. Попробуйте позже.")
-        except Exception:
-            pass
+        print(f"[LOG] Пользователь {call.message.chat.id} возвращен в меню товара {product_id}")
+        logger.info(f"[LOG] Пользователь {call.message.chat.id} возвращен в меню товара {product_id}")
     except Exception as e:
-        error_msg = f"Ошибка при отмене активации: {e}"
-        print(f"[ERROR] {error_msg}")
-        logger.error(f"[ERROR] {error_msg}")
-        logger.error(traceback.format_exc())
-        try:
-            bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
-        except Exception:
-            pass
+        print(f"[ERROR] Ошибка при отмене активации: {e}")
+        logger.error(f"[ERROR] Ошибка при отмене активации: {e}")
+        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
 
 @disable_ai_mode
 def check_screenshot(message: Message) -> None:
@@ -1232,16 +1093,6 @@ def activate_extended_warranty(chat_id, product_id, message_id=None, photo_id=No
 def confirm_review(call: CallbackQuery) -> None:
     """Обработчик для ручного подтверждения скриншота с отзывом"""
     try:
-        # Проверяем наличие сообщения
-        if not call.message:
-            print(f"[ERROR] call.message отсутствует для callback {call.id}")
-            logger.error(f"[ERROR] call.message отсутствует для callback {call.id}")
-            try:
-                bot.answer_callback_query(call.id, "Ошибка: сообщение не найдено. Попробуйте позже.")
-            except Exception:
-                pass
-            return
-        
         parts = call.data.split('_')
         if len(parts) != 3:
             raise ValueError("Неверный формат callback_data")
@@ -1262,46 +1113,20 @@ def confirm_review(call: CallbackQuery) -> None:
             # Если состояние не найдено, активируем без скриншота
             activate_extended_warranty(chat_id, product_id, call.message.message_id)
         
-        # Отвечаем на callback query при успешном выполнении
-        try:
-            bot.answer_callback_query(call.id)
-        except Exception as answer_error:
-            print(f"[WARNING] Не удалось ответить на callback query {call.id}: {answer_error}")
-            logger.warning(f"[WARNING] Не удалось ответить на callback query {call.id}: {answer_error}")
-        
-    except ValueError as e:
-        error_msg = f"Неверный формат запроса: {str(e)}"
-        print(f"[ERROR] {error_msg}")
-        logger.error(f"[ERROR] {error_msg}")
-        try:
-            bot.answer_callback_query(call.id, "Неверный формат запроса. Попробуйте позже.")
-        except Exception:
-            pass
     except Exception as e:
-        error_msg = f"Ошибка при ручном подтверждении скриншота: {e}"
-        print(f"[ERROR] {error_msg}")
-        logger.error(f"[ERROR] {error_msg}")
-        logger.error(traceback.format_exc())
-        try:
-            bot.answer_callback_query(call.id, "Произошла ошибка. Пожалуйста, попробуйте снова.")
-        except Exception:
-            pass
+        print(f"[ERROR] Ошибка при ручном подтверждении скриншота: {e}")
+        logger.error(f"[ERROR] Ошибка при ручном подтверждении скриншота: {e}")
+        
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
+        )
 
 
 @disable_ai_mode
 def cancel_review(call: CallbackQuery) -> None:
     """Обработчик для отмены ручного подтверждения скриншота"""
     try:
-        # Проверяем наличие сообщения
-        if not call.message:
-            print(f"[ERROR] call.message отсутствует для callback {call.id}")
-            logger.error(f"[ERROR] call.message отсутствует для callback {call.id}")
-            try:
-                bot.answer_callback_query(call.id, "Ошибка: сообщение не найдено. Попробуйте позже.")
-            except Exception:
-                pass
-            return
-        
         parts = call.data.split('_')
         if len(parts) != 3:
             raise ValueError("Неверный формат callback_data")
@@ -1316,49 +1141,20 @@ def cancel_review(call: CallbackQuery) -> None:
             del manual_confirmation_state[chat_id]
         
         # Отправляем сообщение с просьбой отправить новый скриншот
-        try:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=call.message.message_id,
-                text=SEND_SCREENSHOT
-            )
-        except Exception as edit_error:
-            # Если редактирование не удалось, отправляем новое сообщение
-            print(f"[WARNING] Не удалось отредактировать сообщение для пользователя {chat_id}: {edit_error}")
-            logger.warning(f"[WARNING] Не удалось отредактировать сообщение для пользователя {chat_id}: {edit_error}")
-            try:
-                bot.send_message(
-                    chat_id=chat_id,
-                    text=SEND_SCREENSHOT
-                )
-            except Exception as send_error:
-                print(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
-                logger.error(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
+        bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=call.message.message_id,
+            text=SEND_SCREENSHOT
+        )
         
-        # Отвечаем на callback query при успешном выполнении
-        try:
-            bot.answer_callback_query(call.id)
-        except Exception as answer_error:
-            print(f"[WARNING] Не удалось ответить на callback query {call.id}: {answer_error}")
-            logger.warning(f"[WARNING] Не удалось ответить на callback query {call.id}: {answer_error}")
-        
-    except ValueError as e:
-        error_msg = f"Неверный формат запроса: {str(e)}"
-        print(f"[ERROR] {error_msg}")
-        logger.error(f"[ERROR] {error_msg}")
-        try:
-            bot.answer_callback_query(call.id, "Неверный формат запроса. Попробуйте позже.")
-        except Exception:
-            pass
     except Exception as e:
-        error_msg = f"Ошибка при отмене подтверждения скриншота: {e}"
-        print(f"[ERROR] {error_msg}")
-        logger.error(f"[ERROR] {error_msg}")
-        logger.error(traceback.format_exc())
-        try:
-            bot.answer_callback_query(call.id, "Произошла ошибка. Пожалуйста, попробуйте снова.")
-        except Exception:
-            pass
+        print(f"[ERROR] Ошибка при отмене подтверждения скриншота: {e}")
+        logger.error(f"[ERROR] Ошибка при отмене подтверждения скриншота: {e}")
+        
+        bot.answer_callback_query(
+            callback_query_id=call.id,
+            text="Произошла ошибка. Пожалуйста, попробуйте снова."
+        )
 
 
 @disable_ai_mode
@@ -2468,9 +2264,13 @@ def process_warranty_case_description(message) -> None:
         product = goods.objects.get(id=product_id)
         
         # Получаем скриншот отзыва пользователя для данного товара
-        warranty_data = user.warranty_data or {}
-        product_warranty = warranty_data.get(str(product_id), {})
-        screenshot_data = product_warranty.get('screenshot')
+        warranty_data = user.warranty_data or []
+        product_warranty = None
+        for warranty in warranty_data:
+            if warranty.get('product_id') == product_id:
+                product_warranty = warranty
+                break
+        screenshot_data = product_warranty.get('screenshot') if product_warranty else None
         
         # Получаем контакт администратора
         admin_contact = AdminContact.objects.filter(is_active=True).first()
@@ -2752,8 +2552,14 @@ def waranty_goods_fast(call: CallbackQuery):
         # Фильтруем товары, исключая те, на которые уже активирована гарантия
         available_products = []
         for product in products:
-            product_warranty = warranty_data.get(str(product.id), {})
-            if not product_warranty.get('is_active', False):
+            # Проверяем, есть ли активная гарантия для этого товара в списке гарантий
+            has_active_warranty = False
+            for warranty in warranty_data:
+                if warranty.get('product_id') == product.id and warranty.get('status') == 'Активна':
+                    has_active_warranty = True
+                    break
+
+            if not has_active_warranty:
                 available_products.append(product)
         
         # Проверяем, есть ли доступные товары для активации
