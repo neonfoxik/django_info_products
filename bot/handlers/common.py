@@ -29,6 +29,7 @@ from django.utils import timezone
 from django.conf import settings
 from bot.utils.excel_handler import WarrantyExcelHandler
 from telebot import TeleBot
+from telebot.apihelper import ApiTelegramException
 import re
 from collections import defaultdict
 
@@ -641,12 +642,37 @@ def show_product_info(call: CallbackQuery) -> None:
 @disable_ai_mode
 def activate_warranty(call: CallbackQuery) -> None:
     """Начинает процесс активации расширенной гарантии"""
+    # ВАЖНО: Отвечаем на callback query СРАЗУ, до любых других операций
+    # Telegram требует быстрый ответ на callback query (в течение ~2 секунд)
+    callback_answered = False
+    try:
+        bot.answer_callback_query(call.id, show_alert=False)
+        callback_answered = True
+        print(f"[LOG] Callback query {call.id} обработан сразу для пользователя {call.message.chat.id if call.message else 'unknown'}")
+    except ApiTelegramException as api_error:
+        # Специфичная обработка ошибок Telegram API
+        error_code = getattr(api_error, 'error_code', None)
+        error_description = str(api_error)
+        print(f"[ERROR] Telegram API ошибка при ответе на callback {call.id}: {error_code} - {error_description}")
+        logger.error(f"[ERROR] Telegram API ошибка при ответе на callback {call.id}: {error_code} - {error_description}")
+        # Если callback query уже истек или обработан, это не критично
+        if error_code not in [400, 409]:  # 400 - Bad Request, 409 - Conflict (уже обработан)
+            callback_answered = True  # Помечаем как обработанный, чтобы не пытаться повторно
+    except Exception as answer_error:
+        print(f"[WARNING] Не удалось сразу ответить на callback query {call.id}: {answer_error}")
+        logger.warning(f"[WARNING] Не удалось сразу ответить на callback query {call.id}: {answer_error}")
+        logger.warning(traceback.format_exc())
+    
     try:
         # Проверяем наличие сообщения
         if not call.message:
             print(f"[ERROR] call.message отсутствует для callback {call.id}")
             logger.error(f"[ERROR] call.message отсутствует для callback {call.id}")
-            bot.answer_callback_query(call.id, "Ошибка: сообщение не найдено. Попробуйте позже.")
+            if not callback_answered:
+                try:
+                    bot.answer_callback_query(call.id, "Ошибка: сообщение не найдено. Попробуйте позже.")
+                except Exception:
+                    pass
             return
         
         parts = call.data.split('_')
@@ -680,6 +706,29 @@ def activate_warranty(call: CallbackQuery) -> None:
                 reply_markup=markup
             )
             print(f"[LOG] Сообщение успешно отредактировано для пользователя {chat_id}")
+        except ApiTelegramException as api_error:
+            # Обработка специфичных ошибок Telegram API
+            error_code = getattr(api_error, 'error_code', None)
+            error_description = str(api_error)
+            print(f"[WARNING] Telegram API ошибка при редактировании сообщения для пользователя {chat_id}: {error_code} - {error_description}")
+            logger.warning(f"[WARNING] Telegram API ошибка при редактировании сообщения для пользователя {chat_id}: {error_code} - {error_description}")
+            # Пытаемся отправить новое сообщение
+            try:
+                bot.send_message(
+                    chat_id=chat_id,
+                    text=SEND_SCREENSHOT,
+                    reply_markup=markup
+                )
+                print(f"[LOG] Новое сообщение отправлено пользователю {chat_id} вместо редактирования")
+            except Exception as send_error:
+                print(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
+                logger.error(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
+                if not callback_answered:
+                    try:
+                        bot.answer_callback_query(call.id, "Произошла ошибка при отправке сообщения. Попробуйте позже.")
+                    except Exception:
+                        pass
+                return
         except Exception as edit_error:
             # Если редактирование не удалось (например, сообщение уже было отредактировано или удалено), отправляем новое сообщение
             print(f"[WARNING] Не удалось отредактировать сообщение для пользователя {chat_id}: {edit_error}")
@@ -694,15 +743,12 @@ def activate_warranty(call: CallbackQuery) -> None:
             except Exception as send_error:
                 print(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
                 logger.error(f"[ERROR] Не удалось отправить новое сообщение пользователю {chat_id}: {send_error}")
-                bot.answer_callback_query(call.id, "Произошла ошибка при отправке сообщения. Попробуйте позже.")
+                if not callback_answered:
+                    try:
+                        bot.answer_callback_query(call.id, "Произошла ошибка при отправке сообщения. Попробуйте позже.")
+                    except Exception:
+                        pass
                 return
-        
-        # Отвечаем на callback query при успешном выполнении
-        try:
-            bot.answer_callback_query(call.id)
-        except Exception as answer_error:
-            print(f"[WARNING] Не удалось ответить на callback query {call.id}: {answer_error}")
-            logger.warning(f"[WARNING] Не удалось ответить на callback query {call.id}: {answer_error}")
         
         print(f"[LOG] Пользователю {chat_id} отправлен запрос на скриншот")
         logger.info(f"[LOG] Пользователю {chat_id} отправлен запрос на скриншот")
@@ -712,27 +758,30 @@ def activate_warranty(call: CallbackQuery) -> None:
         product_id_str = str(product_id) if 'product_id' in locals() else "неизвестный"
         print(f"[ERROR] {error_msg} для товара {product_id_str}")
         logger.error(f"[ERROR] {error_msg} для товара {product_id_str}")
-        try:
-            bot.answer_callback_query(call.id, error_msg)
-        except Exception:
-            pass
+        if not callback_answered:
+            try:
+                bot.answer_callback_query(call.id, error_msg)
+            except Exception:
+                pass
     except ValueError as e:
         error_msg = f"Неверный формат запроса: {str(e)}"
         print(f"[ERROR] {error_msg}")
         logger.error(f"[ERROR] {error_msg}")
-        try:
-            bot.answer_callback_query(call.id, "Неверный формат запроса. Попробуйте позже.")
-        except Exception:
-            pass
+        if not callback_answered:
+            try:
+                bot.answer_callback_query(call.id, "Неверный формат запроса. Попробуйте позже.")
+            except Exception:
+                pass
     except Exception as e:
         error_msg = f"Ошибка при запуске активации гарантии: {e}"
         print(f"[ERROR] {error_msg}")
         logger.error(f"[ERROR] {error_msg}")
         logger.error(traceback.format_exc())
-        try:
-            bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
-        except Exception:
-            pass
+        if not callback_answered:
+            try:
+                bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+            except Exception:
+                pass
 
 @disable_ai_mode
 def cancel_warranty_activation(call: CallbackQuery) -> None:
