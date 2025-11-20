@@ -1579,22 +1579,21 @@ def _notify_admins_user_continues(ticket: SupportTicket) -> None:
 
 # ===== НОВЫЕ ФУНКЦИИ ДЛЯ ПОДДЕРЖКИ (АНАЛОГ ГАРАНТИЙНЫХ) =====
 
-def _start_support_questionnaire(user: User, support_request: dict, chat_id: int) -> None:
-    """Начинает анкету поддержки с первым вопросом."""
-    questions = ProductSupportQuestion.objects.filter(product=support_request['product'], is_active=True).order_by('order')
-    if not questions.exists():
+def _start_support_questionnaire(user: User, support_request: dict, chat_id: int, with_intro: bool = False, back_callback: str = None) -> None:
+    questions_qs = ProductSupportQuestion.objects.filter(product=support_request['product'], is_active=True).order_by('order')
+    if not questions_qs.exists():
         _finish_support_questionnaire_and_ask_platform(user, support_request, chat_id)
         return
-    
+    questions = list(questions_qs.values_list('id', 'text'))
     support_qna_state[chat_id] = {
         'user_id': user.telegram_id,
         'support_request': support_request,
         'current_question': 0,
-        'questions': list(questions.values_list('id', 'text'))
+        'questions': questions,
+        'root_back_callback': back_callback
     }
-    
-    first_q = questions[0]
-    bot.send_message(chat_id=chat_id, text=f"❓ {first_q.text}")
+    prefix_text = "Чтобы оператор помог вам максимально быстро, ответьте, пожалуйста, на несколько вопросов.\n\n" if with_intro else ""
+    ask_support_question(chat_id, 0, prefix_text=prefix_text)
 
 
 def _finish_support_questionnaire_and_ask_platform(user: User, support_request: dict, chat_id: int) -> None:
@@ -1629,52 +1628,60 @@ def _finish_support_questionnaire_and_ask_platform(user: User, support_request: 
     )
 
 
-def process_support_questionnaire_answer(message: Message) -> bool:
-    """
-    Обрабатывает ответы пользователя на вопросы анкеты поддержки.
-    Возвращает True, если сообщение обработано, False - если нет.
-    """
-    chat_id = message.chat.id
-    if chat_id not in support_qna_state:
+def ask_support_question(chat_id: int, idx: int, prefix_text: str = ''):
+    state = support_qna_state.get(chat_id)
+    if not state:
+        return
+    questions = state['questions']
+    root_back_callback = state.get('root_back_callback')
+    if 0 <= idx < len(questions):
+        question_id, question_text = questions[idx]
+        markup = InlineKeyboardMarkup()
+        markup.row(InlineKeyboardButton('Да', callback_data=f'support_qna_ans_{idx}_yes'),
+                   InlineKeyboardButton('Нет', callback_data=f'support_qna_ans_{idx}_no'))
+        if idx > 0:
+            markup.add(InlineKeyboardButton('⬅️ Назад', callback_data=f'support_qna_back_{idx}'))
+        elif root_back_callback:
+            markup.add(InlineKeyboardButton('⬅️ Назад', callback_data=root_back_callback))
+        prefix = prefix_text or ''
+        text = f"{prefix}❓ {question_text}"
+        bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+
+def process_support_questionnaire_answer(call: CallbackQuery):
+    if not isinstance(call, CallbackQuery):
         return False
-    
-    try:
-        state = support_qna_state[chat_id]
-        user = User.objects.get(telegram_id=state['user_id'])
-        support_request = state['support_request']
-        questions = state['questions']
-        current_q_idx = state['current_question']
-        
-        # Сохраняем ответ
-        if current_q_idx < len(questions):
-            question_id, question_text = questions[current_q_idx]
-            answer_text = message.text
-            
-            # Сохраняем ответ в контексте
-            if 'answers' not in support_request:
-                support_request['answers'] = []
-            support_request['answers'].append((question_text, answer_text))
-            
-            # Переходим к следующему вопросу
-            next_q_idx = current_q_idx + 1
-            if next_q_idx < len(questions):
-                # Есть еще вопросы
-                support_qna_state[chat_id]['current_question'] = next_q_idx
-                next_question = questions[next_q_idx]
-                bot.send_message(chat_id=chat_id, text=f"❓ {next_question[1]}")
-            else:
-                # Анкета завершена
-                del support_qna_state[chat_id]
-                _finish_support_questionnaire_and_ask_platform(user, support_request, chat_id)
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"Ошибка в process_support_questionnaire_answer: {e}")
-        # Удаляем состояние при ошибке
-        if chat_id in support_qna_state:
+    chat_id = call.message.chat.id
+    state = support_qna_state.get(chat_id)
+    if not state:
+        return False
+    user = User.objects.get(telegram_id=state['user_id'])
+    support_request = state['support_request']
+    questions = state['questions']
+    idx = state['current_question']
+    data = call.data
+    if data.startswith('support_qna_ans_'):
+        # callback: support_qna_ans_{idx}_yes/no
+        parts = data.split('_')
+        q_idx = int(parts[3])
+        answer = 'Да' if parts[4] == 'yes' else 'Нет'
+        question_id, question_text = questions[q_idx]
+        if 'answers' not in support_request:
+            support_request['answers'] = []
+        support_request['answers'].append((question_text, answer))
+        next_idx = q_idx + 1
+        if next_idx < len(questions):
+            state['current_question'] = next_idx
+            ask_support_question(chat_id, next_idx)
+        else:
             del support_qna_state[chat_id]
-        return False
+            _finish_support_questionnaire_and_ask_platform(user, support_request, chat_id)
+    elif data.startswith('support_qna_back_'):
+        q_idx = int(data.split('_')[-1])
+        prev_idx = q_idx - 1
+        if prev_idx >= 0:
+            state['current_question'] = prev_idx
+            ask_support_question(chat_id, prev_idx)
+    bot.answer_callback_query(call.id)
 
 
 def support_start(call: CallbackQuery) -> None:
@@ -1714,7 +1721,7 @@ def support_start(call: CallbackQuery) -> None:
             if products_count > 0:
                 markup.add(
                     InlineKeyboardButton(
-                        f"📦 {category.name} ({products_count})",
+                        f"📦 {category.name}",
                         callback_data=f"support_category_{category.id}"
                     )
                 )
@@ -1978,6 +1985,7 @@ def support_helped(call: CallbackQuery) -> None:
         
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main"))
+        markup.add(InlineKeyboardButton("⬅️ Назад", callback_data=f"support_product_{issue.product.id}"))
         
         # Удаляем старое сообщение
         try:
@@ -2024,8 +2032,8 @@ def support_not_helped(call: CallbackQuery) -> None:
         # Проверяем, есть ли активные вопросы
         questions = ProductSupportQuestion.objects.filter(product=support_request['product'], is_active=True).order_by('order')
         if questions.exists():
-            # Начинаем анкету
-            _start_support_questionnaire(user, support_request, call.message.chat.id)
+            # Начинаем анкету с интро и кнопками 'Да', 'Нет', 'Назад'
+            _start_support_questionnaire(user, support_request, call.message.chat.id, with_intro=True, back_callback=f"support_product_{issue.product.id}")
         else:
             # Нет вопросов, сразу переходим к выбору платформы
             _finish_support_questionnaire_and_ask_platform(user, support_request, call.message.chat.id)
@@ -2059,8 +2067,8 @@ def support_other(call: CallbackQuery) -> None:
         # Проверяем, есть ли активные вопросы
         questions = ProductSupportQuestion.objects.filter(product=support_request['product'], is_active=True).order_by('order')
         if questions.exists():
-            # Начинаем анкету
-            _start_support_questionnaire(user, support_request, call.message.chat.id)
+            # Начинаем анкету с интро и кнопками 'Да', 'Нет', 'Назад'
+            _start_support_questionnaire(user, support_request, call.message.chat.id, with_intro=True, back_callback=f"support_product_{product.id}")
         else:
             # Нет вопросов, сразу переходим к выбору платформы
             _finish_support_questionnaire_and_ask_platform(user, support_request, call.message.chat.id)

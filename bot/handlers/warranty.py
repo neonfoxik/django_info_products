@@ -11,7 +11,7 @@ warranty_state = {}
 warranty_qna_state = {}
 
 
-def _start_warranty_questionnaire(user: User, warranty_request: WarrantyRequest, chat_id: int) -> None:
+def _start_warranty_questionnaire(user: User, warranty_request: WarrantyRequest, chat_id: int, with_intro: bool = False, back_callback: str = None) -> None:
     """Запускает опрос активных вопросов. Если вопросов нет — сразу переводит к выбору платформы."""
     questions = list(ProductWarrantyQuestion.objects.filter(product=warranty_request.product, is_active=True).order_by('order','id'))
     if not questions:
@@ -23,7 +23,16 @@ def _start_warranty_questionnaire(user: User, warranty_request: WarrantyRequest,
         'index': 0,
     }
     first_q = questions[0]
-    bot.send_message(chat_id=chat_id, text=f"❓ {first_q.text}")
+    if with_intro:
+        text = "Чтобы оператор помог вам максимально быстро, ответьте, пожалуйста, на несколько вопросов."
+        markup = InlineKeyboardMarkup()
+        markup.row(InlineKeyboardButton('Да', callback_data='warranty_start_qna_yes'),
+                   InlineKeyboardButton('Нет', callback_data='warranty_start_qna_no'))
+        if back_callback:
+            markup.add(InlineKeyboardButton('⬅️ Назад', callback_data=back_callback))
+        bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+    else:
+        bot.send_message(chat_id=chat_id, text=f"❓ {first_q.text}")
 
 
 def _finish_questionnaire_and_ask_platform(user: User, warranty_request: WarrantyRequest, chat_id: int) -> None:
@@ -59,50 +68,58 @@ def _finish_questionnaire_and_ask_platform(user: User, warranty_request: Warrant
     )
 
 
-def process_warranty_questionnaire_answer(message: Message) -> bool:
-    """Обрабатывает ответ пользователя на текущий вопрос анкеты. Возвращает True, если обработано."""
-    chat_id = message.chat.id
+def ask_warranty_question(chat_id: int, idx: int):
+    state = warranty_qna_state.get(chat_id)
+    if not state:
+        return
+    q_ids = state['question_ids']
+    if 0 <= idx < len(q_ids):
+        question = ProductWarrantyQuestion.objects.get(id=q_ids[idx])
+        markup = InlineKeyboardMarkup()
+        markup.row(InlineKeyboardButton('Да', callback_data=f'warranty_qna_ans_{idx}_yes'),
+                   InlineKeyboardButton('Нет', callback_data=f'warranty_qna_ans_{idx}_no'))
+        if idx > 0:
+            markup.add(InlineKeyboardButton('⬅️ Назад', callback_data=f'warranty_qna_back_{idx}'))
+        bot.send_message(chat_id=chat_id, text=f"❓ {question.text}", reply_markup=markup)
+
+def process_warranty_questionnaire_answer(call: CallbackQuery):
+    if not isinstance(call, CallbackQuery):
+        return False
+    chat_id = call.message.chat.id
     state = warranty_qna_state.get(chat_id)
     if not state:
         return False
-    try:
-        user = User.objects.get(telegram_id=chat_id)
-        warranty_request = WarrantyRequest.objects.get(id=state['request_id'])
-        q_ids = state['question_ids']
-        idx = state['index']
-        # Текущий вопрос
-        current_q_id = q_ids[idx]
-        question = ProductWarrantyQuestion.objects.get(id=current_q_id)
-        # Сохраняем ответ
+    user = User.objects.get(telegram_id=chat_id)
+    warranty_request = WarrantyRequest.objects.get(id=state['request_id'])
+    q_ids = state['question_ids']
+    idx = state['index']
+    data = call.data
+    if data.startswith('warranty_qna_ans_'):
+        # callback: warranty_qna_ans_{idx}_yes/no
+        parts = data.split('_')
+        q_idx = int(parts[3])
+        answer = 'Да' if parts[4] == 'yes' else 'Нет'
+        question = ProductWarrantyQuestion.objects.get(id=q_ids[q_idx])
         WarrantyAnswer.objects.update_or_create(
             request=warranty_request,
             question=question,
-            defaults={'answer_text': message.text or ''}
+            defaults={'answer_text': answer}
         )
-        # Переходим к следующему вопросу
-        idx += 1
-        if idx < len(q_ids):
-            state['index'] = idx
-            next_q = ProductWarrantyQuestion.objects.get(id=q_ids[idx])
-            bot.send_message(chat_id=chat_id, text=f"❓ {next_q.text}")
-            return True
+        next_idx = q_idx + 1
+        if next_idx < len(q_ids):
+            state['index'] = next_idx
+            ask_warranty_question(chat_id, next_idx)
         else:
-            # Завершаем опрос
             warranty_qna_state.pop(chat_id, None)
             _finish_questionnaire_and_ask_platform(user, warranty_request, chat_id)
-            return True
-    except Exception as e:
-        logger.error(f"Ошибка обработки ответа анкеты гарантии: {e}")
-        # На всякий случай завершим опрос и продолжим
-        try:
-            warranty_qna_state.pop(chat_id, None)
-            user = User.objects.get(telegram_id=chat_id)
-            warranty_request = WarrantyRequest.objects.filter(user=user).order_by('-created_at').first()
-            if warranty_request:
-                _finish_questionnaire_and_ask_platform(user, warranty_request, chat_id)
-        except Exception:
-            pass
-        return True
+    elif data.startswith('warranty_qna_back_'):
+        # callback: warranty_qna_back_{idx}
+        q_idx = int(data.split('_')[-1])
+        prev_idx = q_idx - 1
+        if prev_idx >= 0:
+            state['index'] = prev_idx
+            ask_warranty_question(chat_id, prev_idx)
+    bot.answer_callback_query(call.id)
 
 
 def warranty_start(call: CallbackQuery) -> None:
@@ -221,7 +238,7 @@ def warranty_select_category(call: CallbackQuery) -> None:
             
             markup.add(
                 InlineKeyboardButton(
-                    f"📱 {product.name}" + (f" ({issues_count})" if issues_count > 0 else ""),
+                    f"📱 {product.name}",
                     callback_data=f"warranty_product_{product.id}"
                 )
             )
@@ -471,7 +488,7 @@ def warranty_not_helped(call: CallbackQuery) -> None:
 
         # Запускаем анкету вопросов перед переводом в поддержку
         try:
-            _start_warranty_questionnaire(user, warranty_request, call.message.chat.id)
+            _start_warranty_questionnaire(user, warranty_request, call.message.chat.id, with_intro=True, back_callback="warranty_not_helped")
         except Exception as e:
             logger.error(f"Не удалось запустить опрос гарантий: {e}")
 
@@ -534,7 +551,7 @@ def warranty_other(call: CallbackQuery) -> None:
 
         # Запускаем анкету вопросов перед переводом в поддержку
         try:
-            _start_warranty_questionnaire(user, warranty_request, call.message.chat.id)
+            _start_warranty_questionnaire(user, warranty_request, call.message.chat.id, with_intro=True, back_callback="warranty_other")
         except Exception as e:
             logger.error(f"Не удалось запустить опрос гарантий: {e}")
 
@@ -555,4 +572,5 @@ def warranty_other(call: CallbackQuery) -> None:
     except Exception as e:
         logger.error(f"Ошибка в warranty_other: {e}")
         bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+
 

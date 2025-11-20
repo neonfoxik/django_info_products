@@ -40,7 +40,7 @@ from bot.handlers.support import (
     admin_back_to_tickets,
     send_broadcast_to_all_users,
     support_start, support_select_category, support_select_product, support_select_issue,
-    support_helped, support_not_helped, support_other
+    support_helped, support_not_helped, support_other, process_support_questionnaire_answer
 )
 from bot.handlers.promocodes import (
     promocode_menu, promocode_add, promocode_list, promocode_detail,
@@ -201,7 +201,8 @@ back_to_categories_handler = bot.callback_query_handler(lambda c: c.data == "bac
 # Новые обработчики для системы гарантийных обращений (ДОЛЖНЫ БЫТЬ ПЕРЕД warranty_info_handler!)
 from bot.handlers.warranty import (
     warranty_start, warranty_select_category, warranty_select_product,
-    warranty_select_issue, warranty_helped, warranty_not_helped, warranty_other
+    warranty_select_issue, warranty_helped, warranty_not_helped, warranty_other,
+    process_warranty_questionnaire_answer
 )
 
 warranty_start_handler = bot.callback_query_handler(lambda c: c.data == "warranty_start")(warranty_start)
@@ -211,6 +212,7 @@ warranty_issue_handler = bot.callback_query_handler(lambda c: c.data.startswith(
 warranty_helped_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_helped_"))(warranty_helped)
 warranty_not_helped_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_not_helped_"))(warranty_not_helped)
 warranty_other_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_other_"))(warranty_other)
+warranty_qna_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_qna_"))(process_warranty_questionnaire_answer)
 
 # Обработчики для информации о товаре
 instructions_handler = bot.callback_query_handler(lambda c: c.data.startswith("instructions_"))(show_product_info)
@@ -262,6 +264,7 @@ support_issue_handler = bot.callback_query_handler(lambda c: c.data.startswith("
 support_helped_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_helped_"))(support_helped)
 support_not_helped_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_not_helped_"))(support_not_helped)
 support_other_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_other_"))(support_other)
+support_qna_handler = bot.callback_query_handler(lambda c: c.data.startswith("support_qna_"))(process_support_questionnaire_answer)
 close_ticket_handler = bot.callback_query_handler(lambda c: c.data == "close_ticket")(close_support_ticket)
 accept_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("accept_ticket_"))(accept_support_ticket)
 finish_ticket_handler = bot.callback_query_handler(lambda c: c.data.startswith("finish_ticket_"))(finish_ticket_processing)
