@@ -1639,9 +1639,7 @@ def ask_support_question(chat_id: int, idx: int, prefix_text: str = ''):
         markup = InlineKeyboardMarkup()
         markup.row(InlineKeyboardButton('Да', callback_data=f'support_qna_ans_{idx}_yes'),
                    InlineKeyboardButton('Нет', callback_data=f'support_qna_ans_{idx}_no'))
-        if idx > 0:
-            markup.add(InlineKeyboardButton('⬅️ Назад', callback_data=f'support_qna_back_{idx}'))
-        elif root_back_callback:
+        if root_back_callback:
             markup.add(InlineKeyboardButton('⬅️ Назад', callback_data=root_back_callback))
         prefix = prefix_text or ''
         text = f"{prefix}❓ {question_text}"
