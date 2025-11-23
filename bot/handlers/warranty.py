@@ -21,18 +21,10 @@ def _start_warranty_questionnaire(user: User, warranty_request: WarrantyRequest,
         'request_id': warranty_request.id,
         'question_ids': [q.id for q in questions],
         'index': 0,
+        'root_back_callback': back_callback
     }
-    first_q = questions[0]
-    if with_intro:
-        text = "Чтобы оператор помог вам максимально быстро, ответьте, пожалуйста, на несколько вопросов."
-        markup = InlineKeyboardMarkup()
-        markup.row(InlineKeyboardButton('Да', callback_data='warranty_start_qna_yes'),
-                   InlineKeyboardButton('Нет', callback_data='warranty_start_qna_no'))
-        if back_callback:
-            markup.add(InlineKeyboardButton('⬅️ Назад', callback_data=back_callback))
-        bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
-    else:
-        bot.send_message(chat_id=chat_id, text=f"❓ {first_q.text}")
+    prefix_text = "Чтобы оператор помог вам максимально быстро, ответьте, пожалуйста, на несколько вопросов.\n\n" if with_intro else ""
+    ask_warranty_question(chat_id, 0, prefix_text=prefix_text)
 
 
 def _finish_questionnaire_and_ask_platform(user: User, warranty_request: WarrantyRequest, chat_id: int) -> None:
@@ -68,11 +60,12 @@ def _finish_questionnaire_and_ask_platform(user: User, warranty_request: Warrant
     )
 
 
-def ask_warranty_question(chat_id: int, idx: int):
+def ask_warranty_question(chat_id: int, idx: int, prefix_text: str = ''):
     state = warranty_qna_state.get(chat_id)
     if not state:
         return
     q_ids = state['question_ids']
+    root_back_callback = state.get('root_back_callback')
     if 0 <= idx < len(q_ids):
         question = ProductWarrantyQuestion.objects.get(id=q_ids[idx])
         markup = InlineKeyboardMarkup()
@@ -80,7 +73,11 @@ def ask_warranty_question(chat_id: int, idx: int):
                    InlineKeyboardButton('Нет', callback_data=f'warranty_qna_ans_{idx}_no'))
         if idx > 0:
             markup.add(InlineKeyboardButton('⬅️ Назад', callback_data=f'warranty_qna_back_{idx}'))
-        bot.send_message(chat_id=chat_id, text=f"❓ {question.text}", reply_markup=markup)
+        elif root_back_callback:
+            markup.add(InlineKeyboardButton('⬅️ Назад', callback_data=root_back_callback))
+        prefix = prefix_text or ''
+        text = f"{prefix}❓ {question.text}"
+        bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
 
 def process_warranty_questionnaire_answer(call: CallbackQuery):
     if not isinstance(call, CallbackQuery):
@@ -159,7 +156,7 @@ def warranty_start(call: CallbackQuery) -> None:
             if products_count > 0:
                 markup.add(
                     InlineKeyboardButton(
-                        f"📦 {category.name} ({products_count})",
+                        f"📦 {category.name}",
                         callback_data=f"warranty_category_{category.id}"
                     )
                 )
