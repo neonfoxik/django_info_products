@@ -1286,15 +1286,16 @@ def takeover_support_ticket(call: CallbackQuery) -> None:
             logger.error(f"Ошибка уведомления пользователя о перехвате #{ticket_id}: {e}")
 
         # Уведомляем предыдущего администратора, если был
-        try:
-            previous_admins = get_relevant_admins_for_ticket(ticket).exclude(telegram_id=admin.telegram_id)
-            for other_admin in previous_admins:
-                try:
-                    bot.send_message(other_admin.telegram_id, f"♻️ Обращение #{ticket_id} было перехвачено администратором {admin.user_name}.")
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        # (отправку другим админам отключить по просьбе клиента)
+        # try:
+        #     previous_admins = get_relevant_admins_for_ticket(ticket).exclude(telegram_id=admin.telegram_id)
+        #     for other_admin in previous_admins:
+        #         try:
+        #             bot.send_message(other_admin.telegram_id, f"♻️ Обращение #{ticket_id} было перехвачено администратором {admin.user_name}.")
+        #         except Exception:
+        #             pass
+        # except Exception:
+        #     pass
 
         bot.answer_callback_query(call.id)
     except Exception as e:
