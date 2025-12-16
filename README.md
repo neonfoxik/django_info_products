@@ -53,5 +53,19 @@ python manage.py migrate
 python manage.py createsuperuser
 
 # Запуск бота
+
+## Режимы работы
+
+### 1. Polling (для разработки)
+```bash
 python bot_polling.py
+```
+
+### 2. Webhook (для продакшена)
+```bash
+# Запуск Django сервера
+python manage.py runserver 0.0.0.0:8000
+
+# Webhook устанавливается автоматически при обращении к домен/bot/
+```
 ```

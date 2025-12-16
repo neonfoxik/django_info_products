@@ -1,6 +1,5 @@
 from traceback import format_exc
 
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -99,7 +98,12 @@ def set_webhook(request: HttpRequest) -> JsonResponse:
 
 @require_GET
 def status(request: HttpRequest) -> JsonResponse:
-    return JsonResponse({"message": "OK"}, status=200)
+    """Статус сервера для проверки работоспособности"""
+    bot_status = "initialized" if bot is not None else "not_initialized"
+    return JsonResponse({
+        "message": "OK",
+        "bot_status": bot_status
+    }, status=200)
 
 
 @require_GET
@@ -123,27 +127,59 @@ def run_reset_screenshot_counters(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_POST
-@sync_to_async
 def index(request: HttpRequest) -> JsonResponse:
-    if bot is None:
-        return JsonResponse({"message": "Bot not initialized - BOT_TOKEN not set"}, status=500)
-
-    if request.META.get("CONTENT_TYPE") != "application/json":
-        return JsonResponse({"message": "Bad Request"}, status=403)
-
-    json_string = request.body.decode("utf-8")
-    update = Update.de_json(json_string)
+    """Обработка webhook запросов от Telegram"""
     try:
-        bot.process_new_updates([update])
-    except ApiTelegramException as e:
-        logger.error(f"Telegram exception. {e} {format_exc()}")
-    except ConnectionError as e:
-        logger.error(f"Connection error. {e} {format_exc()}")
+        if bot is None:
+            logger.error("Bot not initialized - BOT_TOKEN not set")
+            return JsonResponse({"message": "Bot not initialized"}, status=500)
+
+        if request.META.get("CONTENT_TYPE") != "application/json":
+            logger.warning(f"Wrong content type: {request.META.get('CONTENT_TYPE')}")
+            return JsonResponse({"message": "Bad Request"}, status=400)
+
+        # Получаем JSON данные
+        try:
+            json_string = request.body.decode("utf-8")
+            if not json_string.strip():
+                logger.warning("Empty request body")
+                return JsonResponse({"message": "Empty request"}, status=400)
+        except UnicodeDecodeError as e:
+            logger.error(f"Unicode decode error: {e}")
+            return JsonResponse({"message": "Invalid encoding"}, status=400)
+
+        # Парсим JSON
+        try:
+            update = Update.de_json(json_string)
+        except Exception as e:
+            logger.error(f"JSON parsing error: {e}")
+            return JsonResponse({"message": "Invalid JSON"}, status=400)
+
+        # Обрабатываем обновление
+        try:
+            bot.process_new_updates([update])
+        except ApiTelegramException as e:
+            logger.error(f"Telegram API exception: {e}")
+            # Не возвращаем ошибку, так как это может быть временная проблема
+        except ConnectionError as e:
+            logger.error(f"Connection error: {e}")
+            # Не возвращаем ошибку, продолжаем обработку
+        except Exception as e:
+            logger.error(f"Unhandled exception in bot processing: {e} {format_exc()}")
+            try:
+                if settings.OWNER_ID:
+                    bot.send_message(settings.OWNER_ID, f'Webhook error: {e}')
+            except:
+                pass  # Игнорируем ошибки отправки сообщений об ошибках
+
+        # Всегда возвращаем успешный ответ
+        return JsonResponse({"message": "OK"}, status=200)
+
     except Exception as e:
-        if settings.OWNER_ID:
-            bot.send_message(settings.OWNER_ID, f'Error from index: {e}')
-        logger.error(f"Unhandled exception. {e} {format_exc()}")
-    return JsonResponse({"message": "OK"}, status=200)
+        # Обработка любых непредвиденных ошибок
+        logger.error(f"Critical error in webhook handler: {e} {format_exc()}")
+        # Даже при критической ошибке возвращаем 200, чтобы Telegram не продолжал retry
+        return JsonResponse({"message": "OK"}, status=200)
 
 
 """Common"""

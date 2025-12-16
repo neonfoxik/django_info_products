@@ -10,11 +10,12 @@ if not getattr(settings, 'BOT_TOKEN', None):
     logging.error("BOT_TOKEN is not set in settings!")
     bot = None
 else:
-    bot = telebot.TeleBot(
-        settings.BOT_TOKEN,
-        threaded=False,
-        skip_pending=True,
-    )
+bot = telebot.TeleBot(
+    settings.BOT_TOKEN,
+    threaded=False,
+    skip_pending=True,
+    num_threads=1,  # Ограничиваем количество потоков для webhook
+)
 
     try:
         bot.set_my_commands(commands)
