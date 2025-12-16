@@ -1,5 +1,6 @@
 from traceback import format_exc
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -23,7 +24,7 @@ from bot.handlers import (
     send_product_instruction_pdf,
     request_contact_for_warranty, process_warranty_case_contact,
     show_warranty_main_menu, show_warranty_conditions, show_warranty_activation_menu,
-    waranty_goods_fast, warranty_select_category_for_activation, support_main_menu, support_ozon, support_wildberries,
+    waranty_goods_fast, support_main_menu, support_ozon, support_wildberries,
     warranty_case_platform_choice, warranty_case_ozon, warranty_case_wildberries
 )
 
@@ -53,9 +54,6 @@ from bot.handlers.promocodes import (
 @require_GET
 def set_webhook(request: HttpRequest) -> JsonResponse:
     """Setting webhook."""
-    if bot is None:
-        return JsonResponse({"message": "Bot not initialized - BOT_TOKEN not set"}, status=500)
-
     try:
         hook_base = (settings.HOOK or '').strip() if hasattr(settings, 'HOOK') else ''
         token = (settings.BOT_TOKEN or '').strip() if hasattr(settings, 'BOT_TOKEN') else ''
@@ -98,12 +96,7 @@ def set_webhook(request: HttpRequest) -> JsonResponse:
 
 @require_GET
 def status(request: HttpRequest) -> JsonResponse:
-    """Статус сервера для проверки работоспособности"""
-    bot_status = "initialized" if bot is not None else "not_initialized"
-    return JsonResponse({
-        "message": "OK",
-        "bot_status": bot_status
-    }, status=200)
+    return JsonResponse({"message": "OK"}, status=200)
 
 
 @require_GET
@@ -127,64 +120,28 @@ def run_reset_screenshot_counters(request: HttpRequest) -> JsonResponse:
 
 @csrf_exempt
 @require_POST
+@sync_to_async
 def index(request: HttpRequest) -> JsonResponse:
-    """Обработка webhook запросов от Telegram"""
+    if request.META.get("CONTENT_TYPE") != "application/json":
+        return JsonResponse({"message": "Bad Request"}, status=403)
+
+    json_string = request.body.decode("utf-8")
+    update = Update.de_json(json_string)
     try:
-        if bot is None:
-            logger.error("Bot not initialized - BOT_TOKEN not set")
-            return JsonResponse({"message": "Bot not initialized"}, status=500)
-
-        if request.META.get("CONTENT_TYPE") != "application/json":
-            logger.warning(f"Wrong content type: {request.META.get('CONTENT_TYPE')}")
-            return JsonResponse({"message": "Bad Request"}, status=400)
-
-        # Получаем JSON данные
-        try:
-            json_string = request.body.decode("utf-8")
-            if not json_string.strip():
-                logger.warning("Empty request body")
-                return JsonResponse({"message": "Empty request"}, status=400)
-        except UnicodeDecodeError as e:
-            logger.error(f"Unicode decode error: {e}")
-            return JsonResponse({"message": "Invalid encoding"}, status=400)
-
-        # Парсим JSON
-        try:
-            update = Update.de_json(json_string)
-        except Exception as e:
-            logger.error(f"JSON parsing error: {e}")
-            return JsonResponse({"message": "Invalid JSON"}, status=400)
-
-        # Обрабатываем обновление
-        try:
-            bot.process_new_updates([update])
-        except ApiTelegramException as e:
-            logger.error(f"Telegram API exception: {e}")
-            # Не возвращаем ошибку, так как это может быть временная проблема
-        except ConnectionError as e:
-            logger.error(f"Connection error: {e}")
-            # Не возвращаем ошибку, продолжаем обработку
-        except Exception as e:
-            logger.error(f"Unhandled exception in bot processing: {e} {format_exc()}")
-            try:
-                if settings.OWNER_ID:
-                    bot.send_message(settings.OWNER_ID, f'Webhook error: {e}')
-            except:
-                pass  # Игнорируем ошибки отправки сообщений об ошибках
-
-        # Всегда возвращаем успешный ответ
-        return JsonResponse({"message": "OK"}, status=200)
-
+        bot.process_new_updates([update])
+    except ApiTelegramException as e:
+        logger.error(f"Telegram exception. {e} {format_exc()}")
+    except ConnectionError as e:
+        logger.error(f"Connection error. {e} {format_exc()}")
     except Exception as e:
-        # Обработка любых непредвиденных ошибок
-        logger.error(f"Critical error in webhook handler: {e} {format_exc()}")
-        # Даже при критической ошибке возвращаем 200, чтобы Telegram не продолжал retry
-        return JsonResponse({"message": "OK"}, status=200)
+        bot.send_message(settings.OWNER_ID, f'Error from index: {e}')
+        logger.error(f"Unhandled exception. {e} {format_exc()}")
+    return JsonResponse({"message": "OK"}, status=200)
 
 
 """Common"""
 
-# start = bot.message_handler(commands=["start"])(start)  # Дублирование, удалено
+start = bot.message_handler(commands=["start"])(start)
 menu_call = bot.callback_query_handler(lambda c: c.data == "menu")(menu_call)
 back_to_main_handler = bot.callback_query_handler(lambda c: c.data == "back_to_main")(back_to_main)
 my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "my_warranties")(show_my_warranties)
@@ -294,9 +251,6 @@ warranty_activation_menu_handler = bot.callback_query_handler(lambda c: c.data =
 # Обработчик для быстрой активации гарантии
 warranty_goods_fast_handler = bot.callback_query_handler(lambda c: c.data == "waranty_goods_fast")(waranty_goods_fast)
 
-# Обработчик для выбора категории при активации гарантии
-warranty_activation_category_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_activation_category_"))(warranty_select_category_for_activation)
-
 # Обработчики для новой системы поддержки
 # support_main_handler = bot.callback_query_handler(lambda c: c.data == "help_main")(show_support_menu)  # Устарел, заменен на support_start
 support_ozon_handler = bot.callback_query_handler(lambda c: c.data == "support_ozon")(start_support_ozon)
@@ -373,7 +327,4 @@ support_wildberries_old_handler = bot.callback_query_handler(lambda c: c.data ==
 # Обработчики для гарантийных случаев с выбором платформы
 warranty_case_ozon_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_case_ozon"))(warranty_case_ozon)
 warranty_case_wb_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_case_wb"))(warranty_case_wildberries)
-
-# Обработчик команды /start
-start_handler = bot.message_handler(commands=['start'])(start)
 
