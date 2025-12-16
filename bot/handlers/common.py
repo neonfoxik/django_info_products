@@ -2591,11 +2591,10 @@ def warranty_show_categories(call: CallbackQuery):
 
         for category_id, category_data in categories.items():
             category_name = category_data['name']
-            products_count = len(category_data['products'])
 
             markup.add(InlineKeyboardButton(
-                f"📂 {category_name} ({products_count} товаров)",
-                callback_data=f"warranty_category_{category_id}"
+                f"📂 {category_name}",
+                callback_data=f"warranty_activation_category_{category_id}"
             ))
 
         # Добавляем кнопку назад
@@ -2658,8 +2657,9 @@ def warranty_show_categories(call: CallbackQuery):
 def warranty_show_category_products(call: CallbackQuery):
     """Показывает товары выбранной категории для активации расширенной гарантии"""
     try:
-        # Получаем ID категории из callback_data
-        category_id = int(call.data.split('_')[-1])
+        # Получаем ID категории из callback_data (warranty_activation_category_{id})
+        parts = call.data.split('_')
+        category_id = int(parts[-1])
 
         # Получаем пользователя и его данные о гарантиях
         user = User.objects.get(telegram_id=call.message.chat.id)
