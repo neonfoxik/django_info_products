@@ -2524,8 +2524,8 @@ def send_product_instruction_pdf(call: CallbackQuery) -> None:
         )
 
 @disable_ai_mode
-def waranty_goods_fast(call: CallbackQuery):
-    """Показывает категории товаров для быстрой активации расширенной гарантии"""
+def warranty_show_categories(call: CallbackQuery):
+    """Показывает категории товаров для активации расширенной гарантии"""
     try:
         # Получаем пользователя и его данные о гарантиях
         user = User.objects.get(telegram_id=call.message.chat.id)
@@ -2575,24 +2575,27 @@ def waranty_goods_fast(call: CallbackQuery):
             )
             return
 
-        # Получаем категории, в которых есть доступные товары
-        available_categories = goods_category.objects.filter(
-            goods__in=available_products
-        ).distinct()
+        # Группируем доступные товары по категориям
+        categories = {}
+        for product in available_products:
+            category = product.parent_category
+            if category.id not in categories:
+                categories[category.id] = {
+                    'name': category.name,
+                    'products': []
+                }
+            categories[category.id]['products'].append(product)
 
         # Создаем клавиатуру с категориями
         markup = InlineKeyboardMarkup()
 
-        for category in available_categories:
-            # Считаем количество доступных товаров в категории
-            category_products_count = len([
-                p for p in available_products
-                if p.parent_category_id == category.id
-            ])
+        for category_id, category_data in categories.items():
+            category_name = category_data['name']
+            products_count = len(category_data['products'])
 
             markup.add(InlineKeyboardButton(
-                f"📂 {category.name} ({category_products_count} товаров)",
-                callback_data=f"warranty_activation_category_{category.id}"
+                f"📂 {category_name} ({products_count} товаров)",
+                callback_data=f"warranty_category_{category_id}"
             ))
 
         # Добавляем кнопку назад
@@ -2622,11 +2625,11 @@ def waranty_goods_fast(call: CallbackQuery):
             reply_markup=markup
         )
 
-        print(f"[LOG] Показано меню выбора категорий для активации гарантии для пользователя {call.message.chat.id}. Доступно: {available_count}/{total_products}")
-        logger.info(f"[LOG] Показано меню выбора категорий для активации гарантии для пользователя {call.message.chat.id}. Доступно: {available_count}/{total_products}")
+        print(f"[LOG] Показано меню категорий для активации гарантии пользователю {call.message.chat.id}. Доступно: {available_count}/{total_products}")
+        logger.info(f"[LOG] Показано меню категорий для активации гарантии пользователю {call.message.chat.id}. Доступно: {available_count}/{total_products}")
 
     except User.DoesNotExist:
-        # Если пользователь не найден, показываем сообщение
+        # Если пользователь не найден, показываем все товары
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
 
@@ -2637,8 +2640,8 @@ def waranty_goods_fast(call: CallbackQuery):
             reply_markup=markup
         )
     except Exception as e:
-        print(f"[ERROR] Ошибка при показе меню выбора категорий для активации гарантии: {e}")
-        logger.error(f"[ERROR] Ошибка при показе меню выбора категорий для активации гарантии: {e}")
+        print(f"[ERROR] Ошибка при показе меню категорий активации гарантии: {e}")
+        logger.error(f"[ERROR] Ошибка при показе меню категорий активации гарантии: {e}")
 
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("⬅️ Назад к гарантии", callback_data="warranty_main_menu"))
@@ -2652,9 +2655,12 @@ def waranty_goods_fast(call: CallbackQuery):
 
 
 @disable_ai_mode
-def warranty_activation_select_category(call: CallbackQuery):
+def warranty_show_category_products(call: CallbackQuery):
     """Показывает товары выбранной категории для активации расширенной гарантии"""
     try:
+        # Получаем ID категории из callback_data
+        category_id = int(call.data.split('_')[-1])
+
         # Получаем пользователя и его данные о гарантиях
         user = User.objects.get(telegram_id=call.message.chat.id)
         warranty_data = user.warranty_data or {}
@@ -2662,8 +2668,7 @@ def warranty_activation_select_category(call: CallbackQuery):
         if isinstance(warranty_data, str):
             warranty_data = json.loads(warranty_data)
 
-        # Получаем ID категории
-        category_id = int(call.data.split('_')[-1])
+        # Получаем категорию
         category = goods_category.objects.get(id=category_id)
 
         # Получаем все активные товары в категории
@@ -2671,6 +2676,18 @@ def warranty_activation_select_category(call: CallbackQuery):
             parent_category=category,
             is_active=True
         ).order_by('name')
+
+        if not products.exists():
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("⬅️ Назад к категориям", callback_data="waranty_goods_fast"))
+
+            bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"В категории '{category.name}' нет доступных товаров для активации расширенной гарантии.",
+                reply_markup=markup
+            )
+            return
 
         # Фильтруем товары, исключая те, на которые уже активирована гарантия
         available_products = []
@@ -2685,7 +2702,7 @@ def warranty_activation_select_category(call: CallbackQuery):
             if not has_active_warranty:
                 available_products.append(product)
 
-        # Проверяем, есть ли доступные товары в категории
+        # Проверяем, есть ли доступные товары для активации
         if not available_products:
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("⬅️ Назад к категориям", callback_data="waranty_goods_fast"))
@@ -2719,22 +2736,22 @@ def warranty_activation_select_category(call: CallbackQuery):
                 callback_data=f"activate_warranty_{product.id}"
             ))
 
-        # Добавляем кнопку назад
+        # Добавляем кнопку назад к категориям
         markup.add(InlineKeyboardButton("⬅️ Назад к категориям", callback_data="waranty_goods_fast"))
 
-        # Показываем информацию о товарах в категории
+        # Показываем информацию
         available_count = len(available_products)
         total_in_category = products.count()
 
         text = (
-            f"✅ Активация расширенной гарантии\n\n"
+            f"✅ Быстрая активация расширенной гарантии\n\n"
             f"Категория: *{category.name}*\n"
-            f"Доступно товаров: {available_count} из {total_in_category}\n\n"
-            f"Выберите товар для активации расширенной гарантии:\n\n"
-            f"После выбора товара вам нужно будет:\n"
-            f"1️⃣ Отправить скриншот отзыва с 5 звездами\n"
-            f"2️⃣ Дождаться проверки скриншота\n"
-            f"3️⃣ Получить подтверждение активации гарантии"
+            f"Доступно товаров для активации: {available_count} из {total_in_category}\n\n"
+            "Выберите товар для активации расширенной гарантии:\n\n"
+            "После выбора товара вам нужно будет:\n"
+            "1️⃣ Отправить скриншот отзыва с 5 звездами\n"
+            "2️⃣ Дождаться проверки скриншота\n"
+            "3️⃣ Получить подтверждение активации гарантии"
         )
 
         bot.edit_message_text(
@@ -2748,6 +2765,26 @@ def warranty_activation_select_category(call: CallbackQuery):
         print(f"[LOG] Показаны товары категории '{category.name}' для активации гарантии пользователю {call.message.chat.id}")
         logger.info(f"[LOG] Показаны товары категории '{category.name}' для активации гарантии пользователю {call.message.chat.id}")
 
+    except (ValueError, goods_category.DoesNotExist):
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⬅️ Назад к категориям", callback_data="waranty_goods_fast"))
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Ошибка: Категория не найдена.",
+            reply_markup=markup
+        )
+    except User.DoesNotExist:
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⬅️ Назад к категориям", callback_data="waranty_goods_fast"))
+
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="Для доступа к быстрой активации гарантии необходимо зарегистрироваться.",
+            reply_markup=markup
+        )
     except Exception as e:
         print(f"[ERROR] Ошибка при показе товаров категории для активации гарантии: {e}")
         logger.error(f"[ERROR] Ошибка при показе товаров категории для активации гарантии: {e}")
@@ -2761,6 +2798,13 @@ def warranty_activation_select_category(call: CallbackQuery):
             text="Произошла ошибка при загрузке товаров. Пожалуйста, попробуйте позже.",
             reply_markup=markup
         )
+
+
+@disable_ai_mode
+def waranty_goods_fast(call: CallbackQuery):
+    """Показывает категории товаров для быстрой активации расширенной гарантии"""
+    # Перенаправляем на новую функцию показа категорий
+    warranty_show_categories(call)
 
 @disable_ai_mode
 def support_main_menu(call: CallbackQuery) -> None:

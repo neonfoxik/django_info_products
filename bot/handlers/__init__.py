@@ -33,6 +33,8 @@ from .common import (
     show_warranty_conditions,
     show_warranty_activation_menu,
     waranty_goods_fast,
+    warranty_show_categories,
+    warranty_show_category_products,
     support_main_menu,
     support_ozon,
     support_wildberries,
