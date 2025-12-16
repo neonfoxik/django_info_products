@@ -331,3 +331,6 @@ support_wildberries_old_handler = bot.callback_query_handler(lambda c: c.data ==
 warranty_case_ozon_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_case_ozon"))(warranty_case_ozon)
 warranty_case_wb_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_case_wb"))(warranty_case_wildberries)
 
+# Обработчик команды /start
+start_handler = bot.message_handler(commands=['start'])(start)
+
