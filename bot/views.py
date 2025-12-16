@@ -250,6 +250,7 @@ warranty_activation_menu_handler = bot.callback_query_handler(lambda c: c.data =
 
 # Обработчик для быстрой активации гарантии
 warranty_goods_fast_handler = bot.callback_query_handler(lambda c: c.data == "waranty_goods_fast")(waranty_goods_fast)
+warranty_activation_category_handler = bot.callback_query_handler(lambda c: c.data.startswith("warranty_activation_category_"))(warranty_activation_select_category)
 
 # Обработчики для новой системы поддержки
 # support_main_handler = bot.callback_query_handler(lambda c: c.data == "help_main")(show_support_menu)  # Устарел, заменен на support_start
