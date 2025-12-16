@@ -54,6 +54,9 @@ from bot.handlers.promocodes import (
 @require_GET
 def set_webhook(request: HttpRequest) -> JsonResponse:
     """Setting webhook."""
+    if bot is None:
+        return JsonResponse({"message": "Bot not initialized - BOT_TOKEN not set"}, status=500)
+
     try:
         hook_base = (settings.HOOK or '').strip() if hasattr(settings, 'HOOK') else ''
         token = (settings.BOT_TOKEN or '').strip() if hasattr(settings, 'BOT_TOKEN') else ''
@@ -122,6 +125,9 @@ def run_reset_screenshot_counters(request: HttpRequest) -> JsonResponse:
 @require_POST
 @sync_to_async
 def index(request: HttpRequest) -> JsonResponse:
+    if bot is None:
+        return JsonResponse({"message": "Bot not initialized - BOT_TOKEN not set"}, status=500)
+
     if request.META.get("CONTENT_TYPE") != "application/json":
         return JsonResponse({"message": "Bad Request"}, status=403)
 
@@ -134,14 +140,15 @@ def index(request: HttpRequest) -> JsonResponse:
     except ConnectionError as e:
         logger.error(f"Connection error. {e} {format_exc()}")
     except Exception as e:
-        bot.send_message(settings.OWNER_ID, f'Error from index: {e}')
+        if settings.OWNER_ID:
+            bot.send_message(settings.OWNER_ID, f'Error from index: {e}')
         logger.error(f"Unhandled exception. {e} {format_exc()}")
     return JsonResponse({"message": "OK"}, status=200)
 
 
 """Common"""
 
-start = bot.message_handler(commands=["start"])(start)
+# start = bot.message_handler(commands=["start"])(start)  # Дублирование, удалено
 menu_call = bot.callback_query_handler(lambda c: c.data == "menu")(menu_call)
 back_to_main_handler = bot.callback_query_handler(lambda c: c.data == "back_to_main")(back_to_main)
 my_warranties_handler = bot.callback_query_handler(lambda c: c.data == "my_warranties")(show_my_warranties)

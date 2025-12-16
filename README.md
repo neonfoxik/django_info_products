@@ -28,8 +28,23 @@ venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 
 # Настройка переменных окружения
-cp .env.example .env
-# Отредактируйте .env файл с вашими настройками
+# Создайте файл .env в корне проекта со следующим содержимым:
+
+```env
+# Токен бота от @BotFather
+BOT_TOKEN=ваш_токен_бота_здесь
+
+# ID владельца бота (ваш Telegram ID)
+OWNER_ID=ваш_telegram_id_здесь
+
+# URL для webhook (если используется webhook вместо polling)
+HOOK=https://your-domain.com
+
+# ID чата для логирования (опционально)
+CHAT_LOG_ID=id_чата_для_логов
+```
+
+# Применение миграций
 
 # Применение миграций
 python manage.py migrate
