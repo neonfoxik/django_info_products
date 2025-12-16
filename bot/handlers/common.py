@@ -713,10 +713,6 @@ def check_screenshot(message: Message) -> None:
                 from .support import handle_admin_response
                 handle_admin_response(message)
                 return
-            # Также игнорируем любые фото от админов вне контекста гарантий
-            u = User.objects.get(telegram_id=message.chat.id)
-            if getattr(u, 'is_admin', False):
-                return
         except Exception:
             pass
         print(f"[LOG] ПОЛУЧЕНА ФОТОГРАФИЯ ОТ ПОЛЬЗОВАТЕЛЯ {message.chat.id}")
