@@ -1705,17 +1705,21 @@ def admin_panel(call: CallbackQuery) -> None:
         
         markup = InlineKeyboardMarkup()
         excel_btn = InlineKeyboardButton("📊 Получить Excel-таблицу", callback_data="admin_excel")
-        open_tickets_btn = InlineKeyboardButton("📬 Активные обращения", callback_data="admin_open_tickets")
-        in_progress_tickets_btn = InlineKeyboardButton("🟡 В обработке", callback_data="admin_in_progress_tickets")
+        open_tickets_btn = InlineKeyboardButton("📬 Свободные обращения", callback_data="admin_open_tickets")
+        my_tickets_btn = InlineKeyboardButton("📂 Мои обращения пользователей", callback_data="admin_my_tickets")
+        in_progress_tickets_btn = InlineKeyboardButton("🟡 Все в обработке", callback_data="admin_in_progress_tickets")
         broadcast_btn = InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast")
         promocode_btn = InlineKeyboardButton("🎫 Промокоды", callback_data="promocode_menu")
         back_btn = InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")
+        
         markup.add(excel_btn)
         markup.add(open_tickets_btn)
+        markup.add(my_tickets_btn)
         markup.add(in_progress_tickets_btn)
         markup.add(broadcast_btn)
         markup.add(promocode_btn)
         markup.add(back_btn)
+
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,

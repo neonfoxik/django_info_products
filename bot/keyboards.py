@@ -233,16 +233,15 @@ def get_admin_open_tickets_markup(tickets: list):
 
 
 def get_admin_in_progress_tickets_markup(tickets: list):
-    """Список обращений в обработке (можно перехватить)"""
+    """Список обращений в обработке (без кнопки перехвата)"""
     markup = InlineKeyboardMarkup()
     for t in tickets:
         assigned = f" • {t.assigned_admin.user_name}" if t.assigned_admin else ""
         title = f"#{t.id} • {t.user.user_name} • {t.get_platform_display()}{assigned}"
         markup.add(InlineKeyboardButton(title, callback_data=f"view_ticket_{t.id}"))
-        # Отдельная кнопка для перехвата
-        markup.add(InlineKeyboardButton("♻️ Перехватить это обращение", callback_data=f"takeover_ticket_{t.id}"))
     markup.add(InlineKeyboardButton("⬅️ Админ-панель", callback_data="admin_panel"))
     return markup
+
 
 
 def get_broadcast_confirm_markup():

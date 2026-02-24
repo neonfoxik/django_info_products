@@ -783,15 +783,35 @@ def accept_support_ticket(call: CallbackQuery) -> None:
             ticket.last_message_from = 'admin'
             ticket.save()
         
-        # Собираем историю сообщений
-        messages = SupportMessage.objects.filter(ticket=ticket).order_by('created_at')
-        message_history = ""
-        for msg in messages:
-            timestamp = msg.created_at.strftime('%H:%M %d.%m.%Y')
-            message_history += f"[{timestamp}] {msg.sender.user_name}: {msg.message_text}\n\n"
+        # Собираем историю сообщений (от новых к старым, чтобы влезли последние)
+        messages_query = SupportMessage.objects.filter(ticket=ticket).order_by('-created_at')
+        history_parts = []
+        current_len = 0
+        limit = 3000
+        truncated = False
         
-        if not message_history:
+        for msg in messages_query:
+            timestamp = msg.created_at.strftime('%H:%M %d.%m.%Y')
+            sender_type = "👤" if msg.sender_type == 'user' else "👨‍💼"
+            text = msg.message_text or (f"[{msg.content_type}]" if msg.content_type != 'text' else "")
+            entry = f"{sender_type} [{timestamp}] {msg.sender.user_name}:\n{text}\n\n"
+            
+            if current_len + len(entry) > limit:
+                truncated = True
+                break
+            history_parts.append(entry)
+            current_len += len(entry)
+        
+        # Разворачиваем обратно в хронологический порядок
+        history_parts.reverse()
+        message_history = "".join(history_parts)
+        
+        if truncated:
+            message_history = "⚠️ ... (старая переписка скрыта)\n\n" + message_history
+            
+        if not message_history and not messages_query.exists():
             message_history = "Пока нет сообщений от пользователя."
+
         
         # Проверяем, есть ли файлы в обращении
         has_files = SupportMessage.objects.filter(ticket=ticket).exclude(content_type='text').exists()
@@ -802,22 +822,30 @@ def accept_support_ticket(call: CallbackQuery) -> None:
         }
         
         # Создаем клавиатуру с кнопкой получения файлов, если они есть
-        from bot.keyboards import get_admin_response_markup, get_ticket_files_markup
+        from bot.keyboards import get_admin_response_markup, get_admin_response_with_files_markup
         if has_files:
-            markup = get_ticket_files_markup(ticket_id)
+            markup = get_admin_response_with_files_markup(ticket_id)
         else:
             markup = get_admin_response_markup(ticket_id)
+        
+        # Экранируем фигурные скобки, чтобы .format() не упал на сообщениях пользователя
+        safe_history = message_history.replace('{', '{{').replace('}', '}}')
+        
+        # Формируем текст ответа
+        response_text = ADMIN_TICKET_ASSIGNED_TEXT.format(
+            ticket_id=ticket_id,
+            message_history=safe_history
+        )
         
         # Отправляем админу информацию об обращении (с заменой сообщения)
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"✅ Вы приняли обращение #{ticket_id}\n\n" + ADMIN_TICKET_ASSIGNED_TEXT.format(
-                ticket_id=ticket_id,
-                message_history=message_history
-            ),
+            text=response_text,
             reply_markup=markup
         )
+
+
         # Учитываем сообщение-карточку, отредактированное ботом
         _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
         
@@ -1055,19 +1083,36 @@ def view_ticket_details(call: CallbackQuery) -> None:
                 message_history += f"💬 Ответ: {answer.answer_text}\n\n"
         
         
-        message_history += "💬 История сообщений:\n"
+        # Собираем историю сообщений (от новых к старым)
+        messages_query = SupportMessage.objects.filter(ticket=ticket).order_by('-created_at')
+        history_parts = []
+        current_len = len(message_history) + 50 # Запас на заголовок "История сообщений"
+        limit = 3800
+        truncated = False
         
-        for msg in messages:
+        for msg in messages_query:
             timestamp = msg.created_at.strftime('%H:%M %d.%m.%Y')
             sender_type = "👤" if msg.sender_type == 'user' else "👨‍💼"
-            message_history += f"{sender_type} [{timestamp}] {msg.sender.user_name}:\n{msg.message_text}\n\n"
+            text = msg.message_text or (f"[{msg.content_type}]" if msg.content_type != 'text' else "")
+            entry = f"{sender_type} [{timestamp}] {msg.sender.user_name}:\n{text}\n\n"
+            
+            if current_len + len(entry) > limit:
+                truncated = True
+                break
+            history_parts.append(entry)
+            current_len += len(entry)
+            
+        history_parts.reverse()
+        message_history += "💬 История сообщений:\n"
         
-        if not messages:
+        if truncated:
+            message_history += "⚠️ ... (старая переписка скрыта)\n\n"
+            
+        message_history += "".join(history_parts)
+        
+        if not history_parts and not messages_query.exists():
             message_history += "Пока нет сообщений.\n"
-        
-        # Обрезаем сообщение, если оно слишком длинное
-        if len(message_history) > 4000:
-            message_history = message_history[:3900] + "\n\n... (сообщение обрезано)"
+
         
         # Помечаем как прочитанное админом
         ticket.unread_by_admin = False
@@ -1221,10 +1266,12 @@ def admin_list_in_progress_tickets(call: CallbackQuery) -> None:
 def takeover_support_ticket(call: CallbackQuery) -> None:
     """Перехват обращения другим админом"""
     try:
+        bot.answer_callback_query(call.id)
         ticket_id = int(call.data.split('_')[-1])
         admin = User.objects.get(telegram_id=call.message.chat.id)
         with transaction.atomic():
             ticket = SupportTicket.objects.select_for_update().get(id=ticket_id)
+
             # Проверяем право перехватывать по платформе (кроме супер/общих админов)
             if not admin_can_handle_ticket(admin, ticket):
                 bot.answer_callback_query(call.id, "Нет доступа к этой платформе")
@@ -1244,15 +1291,34 @@ def takeover_support_ticket(call: CallbackQuery) -> None:
             'ticket_id': ticket_id
         }
         
-        # Собираем историю сообщений
-        messages = SupportMessage.objects.filter(ticket=ticket).order_by('created_at')
-        message_history = ""
-        for msg in messages:
-            timestamp = msg.created_at.strftime('%H:%M %d.%m.%Y')
-            message_history += f"[{timestamp}] {msg.sender.user_name}: {msg.message_text}\n\n"
+        # Собираем историю сообщений (от новых к старым)
+        messages_query = SupportMessage.objects.filter(ticket=ticket).order_by('-created_at')
+        history_parts = []
+        current_len = 0
+        limit = 3000
+        truncated = False
         
-        if not message_history:
+        for msg in messages_query:
+            timestamp = msg.created_at.strftime('%H:%M %d.%m.%Y')
+            sender_type = "👤" if msg.sender_type == 'user' else "👨‍💼"
+            text = msg.message_text or (f"[{msg.content_type}]" if msg.content_type != 'text' else "")
+            entry = f"{sender_type} [{timestamp}] {msg.sender.user_name}:\n{text}\n\n"
+            
+            if current_len + len(entry) > limit:
+                truncated = True
+                break
+            history_parts.append(entry)
+            current_len += len(entry)
+        
+        history_parts.reverse()
+        message_history = "".join(history_parts)
+        
+        if truncated:
+            message_history = "⚠️ ... (старая переписка скрыта)\n\n" + message_history
+            
+        if not message_history and not messages_query.exists():
             message_history = "Пока нет сообщений от пользователя."
+
         
         # Проверяем, есть ли файлы в обращении
         has_files = SupportMessage.objects.filter(ticket=ticket).exclude(content_type='text').exists()
@@ -1263,17 +1329,26 @@ def takeover_support_ticket(call: CallbackQuery) -> None:
             markup = get_admin_response_with_files_markup(ticket_id)
         else:
             markup = get_admin_response_markup(ticket_id)
+
+        # Экранируем фигурные скобки
+        safe_history = message_history.replace('{', '{{').replace('}', '}}')
+        
+        # Формируем текст (используем ADMIN_TICKET_ASSIGNED_TEXT, заменяя первую строку для ясности что это перехват)
+        assigned_text = ADMIN_TICKET_ASSIGNED_TEXT.format(
+            ticket_id=ticket_id,
+            message_history=safe_history
+        )
+        # Заменяем "Вы приняли" на "Вы перехватили" в первой строке
+        intercept_text = assigned_text.replace("Вы приняли обращение", "Вы перехватили обращение")
         
         # Сообщаем админу
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"✅ Вы перехватили обращение #{ticket_id}\n\n" + ADMIN_TICKET_ASSIGNED_TEXT.format(
-                ticket_id=ticket_id,
-                message_history=message_history
-            ),
+            text=intercept_text,
             reply_markup=markup
         )
+
         _track_admin_message(ticket, call.message.chat.id, call.message.message_id)
 
         # Уведомляем пользователя о смене администратора
@@ -1300,7 +1375,11 @@ def takeover_support_ticket(call: CallbackQuery) -> None:
         bot.answer_callback_query(call.id)
     except Exception as e:
         logger.error(f"Ошибка в takeover_support_ticket: {e}")
-        bot.answer_callback_query(call.id, "Произошла ошибка. Попробуйте позже.")
+        try:
+            bot.answer_callback_query(call.id, "Произошла ошибка при перехвате.")
+        except:
+            pass
+
 
 
 def send_ticket_files_to_admin(call: CallbackQuery) -> None:
