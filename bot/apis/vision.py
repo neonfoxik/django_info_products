@@ -5,6 +5,7 @@ import dotenv
 import logging
 import re
 from io import BytesIO
+from datetime import datetime, timedelta
 from django.conf import settings
 from telebot.types import PhotoSize
 
@@ -175,16 +176,33 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             message_parts = []
             has_5_stars = False
 
-            # ПЕРВЫЙ ЭТАП: Проверяем базовые условия (звезды и возврат товара)
+            # ПЕРВЫЙ ЭТАП: Проверяем базовые условия (звезды, возврат товара и ДАТУ)
             if is_returned:
                 message_parts.append("Товар возвращен или отменен. Расширенная гарантия недоступна.")
                 has_5_stars = False
             elif has_multiple_products:
                 message_parts.append("На скриншоте обнаружено несколько товаров. Пожалуйста, отправьте скриншот только с одним товаром.")
                 has_5_stars = False
+            elif not review_date:
+                message_parts.append("На скриншоте не найдена дата отзыва. Пожалуйста, пришлите скриншот отзыва прямо из приложения Маркетплейса, где видна дата.")
+                has_5_stars = False
             elif stars_count == 5:
-                message_parts.append("Отзыв с 5 звездами подтвержден!")
-                has_5_stars = True
+                # Проверка даты (не должна быть в будущем более чем на 2 дня из-за часовых поясов)
+                try:
+                    review_dt = datetime.strptime(review_date, "%d.%m.%Y").date()
+                    today = datetime.now().date()
+                    limit_date = today + timedelta(days=2)
+                    
+                    if review_dt > limit_date:
+                        message_parts.append(f"Дата отзыва ({review_date}) кажется некорректной (будущее время). Пожалуйста, пришлите актуальный скриншот.")
+                        has_5_stars = False
+                    else:
+                        message_parts.append("Отзыв с 5 звездами подтвержден!")
+                        has_5_stars = True
+                except Exception as e:
+                    logger.error(f"[VISION] Ошибка парсинга даты {review_date}: {e}")
+                    message_parts.append("Не удалось корректно распознать дату на скриншоте. Пожалуйста, пришлите более четкий скриншот с датой.")
+                    has_5_stars = False
             elif stars_count > 0:
                 message_parts.append(f"В отзыве обнаружено {stars_count} звезд. Для получения расширенной гарантии необходимо оставить отзыв с 5 звездами.")
                 has_5_stars = False
