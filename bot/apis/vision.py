@@ -51,13 +51,20 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
             except goods.DoesNotExist:
                 pass
         
+        # Получаем текущую дату для передачи в промпт (чтобы ИИ мог обработать "сегодня" и "вчера")
+        today_dt = datetime.now()
+        yesterday_dt = today_dt - timedelta(days=1)
+        today_str = today_dt.strftime("%d.%m.%Y")
+        yesterday_str = yesterday_dt.strftime("%d.%m.%Y")
+        
         # Пробуем сначала использовать более легкую модель для экономии токенов
         try:
             # Кодируем файл в base64 для передачи в API
             base64_image = base64.b64encode(downloaded_file).decode('utf-8')
             
             # Формируем системное сообщение
-            system_message = "Определи количество желтых звезд в отзыве и дату отзыва. "
+            system_message = f"Сегодняшняя дата: {today_str}. "
+            system_message += "Определи количество желтых звезд в отзыве и дату отзыва. "
             if product_image:
                 system_message += f"КРИТИЧНО: Сравни товар на скриншоте с товаром '{product_name}'. "
                 system_message += "Товары должны быть ОДИНАКОВЫМИ по типу, внешнему виду и функциональности. "
@@ -65,9 +72,11 @@ def analyze_screenshot(photo: PhotoSize, bot, product_id=None) -> dict:
                 system_message += "Обрати внимание на: цвет, форму, размер, тип товара, бренд, модель. "
             system_message += "Если желтых звезд меньше 5, укажи точное количество. Если 5 желтых звезд, напиши '5 звезд'. "
             system_message += "Если желтых звезд нет или это не отзыв, напиши 'нет звезд'. "
-            system_message += "Если видишь дату отзыва, укажи её в формате ДД.ММ.ГГГГ. "
+            system_message += "Если в отзыве написано 'Сегодня', 'Сегодня в ...' или 'Опубликован сегодня', используй дату " + today_str + ". "
+            system_message += "Если написано 'Вчера', используй дату " + yesterday_str + ". "
+            system_message += "Если видишь дату в числовом формате, укажи её строго в формате ДД.ММ.ГГГГ. "
             system_message += "Если дат несколько, используй последнюю (нижнюю) дату. "
-            system_message += "Если даты нет, напиши 'нет даты'. "
+            system_message += "Если даты нет ВООБЩЕ и нет слов сегодня/вчера, напиши 'нет даты'. "
             system_message += "Если товаров несколько, напиши 'несколько товаров'. "
             system_message += "Если товар возвращен или отменен, напиши 'товар возвращен'. "
             if product_image:
